@@ -1,3 +1,8 @@
+app:
+  id: ari:cloud:ecosystem::app/<YOUR-APP-ID>
+  runtime:
+    name: nodejs18.x
+
 modules:
   jira:issuePanel:
     - key: sla-link-panel
@@ -10,3 +15,7 @@ permissions:
     - read:jira-work
     - read:jira-user
     - read:jira-service-management-request
+
+functions:
+  main:
+    handler: index.run
