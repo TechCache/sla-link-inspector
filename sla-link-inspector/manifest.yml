@@ -2,7 +2,7 @@ app:
   id: ari:cloud:ecosystem::app/<YOUR-APP-ID>
 
 runtime:
-  name: nodejs18.x
+  name: nodejs20.x
 
 modules:
   jira:issuePanel:
