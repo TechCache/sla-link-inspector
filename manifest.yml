@@ -1,21 +1,26 @@
-# manifest.yml
 app:
-  id: ari:cloud:ecosystem::app/<APP-ID>
-  name: SLA Link Inspector
+  id: ari:cloud:ecosystem::app/your-app-id-here
+
+runtime:
+  name: nodejs20.x
 
 permissions:
   scopes:
     - read:jira-work
     - read:jira-user
-    - read:jira-service-management-request
 
 modules:
   jira:issuePanel:
     - key: sla-link-panel
-      function: main
-      title: Linked SLA Status
-      icon: https://your-logo-url/icon.png
+      resource: main
+      resolver: resolver
+      title: SLA Link Inspector
+      icon: https://avatars.githubusercontent.com/u/214186582?v=4
 
-functions:
-  main:
-    handler: index.run
+resources:
+  - key: main
+    path: static/  # Use 'static/' if using Custom UI, otherwise omit
+
+function:
+  key: resolver
+  handler: index.run
