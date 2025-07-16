@@ -1,8 +1,7 @@
 app:
-  id: ari:cloud:ecosystem::app/your-app-id-here
-
-runtime:
-  name: nodejs20.x
+  id: ari:cloud:ecosystem::app/aed3fc25-0933-4935-aeeb-4469a9a3c828
+  runtime:
+    name: nodejs20.x
 
 permissions:
   scopes:
@@ -12,16 +11,10 @@ permissions:
 modules:
   jira:issuePanel:
     - key: sla-link-panel
-      resource: main
-      resolver: resolver
+      resource: sla-ui
       title: SLA Link Inspector
       icon: https://avatars.githubusercontent.com/u/214186582?v=4
 
 resources:
-  - key: main
-    path: static/  # Use 'static/' if using Custom UI, otherwise omit
-
-function:
-  key: resolver
-  handler: index.run
-
+  - key: sla-ui
+    path: static

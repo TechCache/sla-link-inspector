@@ -1,20 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import ForgeReconciler, { Text } from '@forge/react';
-import { invoke } from '@forge/bridge';
+import ForgeUI, { render, IssuePanel, Text } from '@forge/ui';
+
 const App = () => {
-  const [data, setData] = useState(null);
-  useEffect(() => {
-    invoke('getText', { example: 'my-invoke-variable' }).then(setData);
-  }, []);
   return (
-    <>
-      <Text>Hello world!</Text>
-      <Text>{data ? data : 'Loading...'}</Text>
-    </>
+    <IssuePanel>
+      <Text>SLA Link Inspector Panel Loaded.</Text>
+    </IssuePanel>
   );
 };
-ForgeReconciler.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+
+export const renderApp = render(<App />);
