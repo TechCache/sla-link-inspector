@@ -14,7 +14,10 @@ modules:
       title: SLA Link Inspector
       icon: https://avatars.githubusercontent.com/u/214186582?v=4
       resource: sla-ui
+  function:
+    - key: resolver
+      handler: resolvers/resolver.handler
 
 resources:
   - key: sla-ui
-    path: static
+    path: src/frontend
