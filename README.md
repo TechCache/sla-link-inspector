@@ -6,9 +6,9 @@ Built by **TechCache**, this tool helps support and operational teams monitor up
 
 ---
 
-## 📦 Features
+## Features
 
-- Detects and lists linked issues from a specified project (e.g., NSGHTTST)
+- Detects and lists linked issues from a specified project 
 - Fetches and displays each linked ticket's SLA status (e.g., Time to First Response)
 - Visual indicators for breached, at-risk, or on-track SLAs
 - Seamless integration with Jira Cloud via Atlassian Forge
@@ -16,7 +16,7 @@ Built by **TechCache**, this tool helps support and operational teams monitor up
 
 ---
 
-## 🚀 Installation (Developer Setup)
+## Installation (Developer Setup)
 
 1. **Clone the Repository**
 
