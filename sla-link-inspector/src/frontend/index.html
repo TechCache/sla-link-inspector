@@ -6,17 +6,33 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>SLA Link Inspector Dashboard</h1>
-  <p>Linked Tickets SLA Status:</p>
+  <div id="app">
+    <h1>SLA Link Inspector</h1>
+    <p class="subtitle">Linked tickets SLA status</p>
 
-  <table id="sla-table">
-    <thead>
-      <tr>
-        <th>Linked Ticket</th>
-        <th>SLA Status</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+    <div id="loading" class="state-message">
+      Loading linked issues…
+    </div>
+
+    <div id="error" class="state-message error" style="display: none;"></div>
+    <div id="empty" class="state-message empty" style="display: none;">
+      No linked issues returned for this ticket. The panel shows standard Jira issue links only.
+    </div>
+
+    <div id="sla-summary" class="sla-summary" style="display: none;"></div>
+
+    <table id="sla-table" style="display: none;">
+      <thead>
+        <tr>
+          <th>Linked ticket</th>
+          <th>Project</th>
+          <th>Status</th>
+          <th>SLA status</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <script src="main.js"></script>
 </body>
 </html>
