@@ -39,6 +39,12 @@ function statusClass(slaStatus) {
   }
 }
 
+function formatHoursLeft(hours) {
+  if (hours < 1) return Math.round(hours * 60) + 'm';
+  if (hours < 24) return Math.round(hours) + 'h';
+  return Math.round(hours / 24) + 'd';
+}
+
 function renderSLATable(linkedIssues) {
   const sorted = sortLinkedIssues(linkedIssues);
 
@@ -64,9 +70,9 @@ function renderSLATable(linkedIssues) {
     ticketCell.appendChild(link);
     row.appendChild(ticketCell);
 
-    const projectCell = document.createElement('td');
-    projectCell.textContent = ticket.projectKey ?? '—';
-    row.appendChild(projectCell);
+    const priorityCell = document.createElement('td');
+    priorityCell.textContent = ticket.priority ?? '—';
+    row.appendChild(priorityCell);
 
     const statusCell = document.createElement('td');
     statusCell.textContent = ticket.issueStatus ?? '—';
@@ -75,7 +81,15 @@ function renderSLATable(linkedIssues) {
     const slaCell = document.createElement('td');
     const label = document.createElement('span');
     label.className = 'status-label ' + statusClass(ticket.slaStatus);
-    label.textContent = ticket.sla ?? 'No SLA';
+    if (ticket.hoursRemaining != null) {
+      if (ticket.hoursRemaining > 0) {
+        label.textContent = formatHoursLeft(ticket.hoursRemaining) + ' left';
+      } else {
+        label.textContent = formatHoursLeft(-ticket.hoursRemaining) + ' overdue';
+      }
+    } else {
+      label.textContent = ticket.sla ?? 'No SLA';
+    }
     slaCell.appendChild(label);
     row.appendChild(slaCell);
 
@@ -110,6 +124,11 @@ async function run() {
     console.log('[SLA Link Inspector] Frontend: linked issues count', linkedIssues.length);
 
     if (linkedIssues.length === 0) {
+      const emptyEl = document.getElementById('empty');
+      const checkedKey = result.issueKey;
+      emptyEl.textContent = checkedKey
+        ? `No linked issues returned for ${checkedKey}. The panel uses standard Jira issue links (REST API); "Linked work items" may use a different source.`
+        : 'No linked issues returned for this ticket. The panel shows standard Jira issue links only.';
       showState('empty');
       return;
     }

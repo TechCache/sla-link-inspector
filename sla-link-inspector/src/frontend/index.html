@@ -8,7 +8,7 @@
 <body>
   <div id="app">
     <h1>SLA Link Inspector</h1>
-    <p class="subtitle">Linked tickets SLA status</p>
+    <p class="subtitle">SLA status for linked issues <span class="version" aria-hidden="true">(v2)</span></p>
 
     <div id="loading" class="state-message">
       Loading linked issues…
@@ -24,8 +24,8 @@
     <table id="sla-table" style="display: none;">
       <thead>
         <tr>
-          <th>Linked ticket</th>
-          <th>Project</th>
+          <th>Ticket</th>
+          <th>Priority</th>
           <th>Status</th>
           <th>SLA status</th>
         </tr>
@@ -33,6 +33,6 @@
       <tbody></tbody>
     </table>
   </div>
-  <script src="main.js"></script>
+  <script src="build/main.js?v=3"></script>
 </body>
 </html>

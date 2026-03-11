@@ -1,36 +1,33 @@
-# Forge Hello World
+# SLA Link Inspector (Forge app)
 
-This project contains a Forge app written in Javascript that displays `Hello World!` in a Jira admin page. 
+Jira Forge app that shows SLA status of linked issues in an issue panel.
 
-See [developer.atlassian.com/platform/forge/](https://developer.atlassian.com/platform/forge) for documentation and tutorials explaining Forge.
+## Build and deploy
 
-## Requirements
+1. **Install dependencies** (if you haven’t already):
+   ```bash
+   npm install
+   ```
 
-See [Set up Forge](https://developer.atlassian.com/platform/forge/set-up-forge/) for instructions to get set up.
+2. **Bundle the frontend** (required so `@forge/bridge` is resolved in Custom UI):
+   ```bash
+   npm run build
+   ```
+   This writes `src/frontend/build/main.js`. The panel loads this bundle instead of the raw module.
 
-## Quick start
+3. **Deploy**:
+   ```bash
+   forge deploy
+   ```
+   Run `npm run build` before every deploy so the panel has the latest bundle.
 
-- Modify your app frontend by editing the `src/frontend/index.jsx` file.
+## Development
 
-- Modify your app backend by editing the `src/resolvers/index.js` file to define resolver functions. See [Forge resolvers](https://developer.atlassian.com/platform/forge/runtime-reference/custom-ui-resolver/) for documentation on resolver functions.
+- **Resolver:** `src/resolvers/resolver.js` — `getLinkedIssueSlas` uses Jira REST API (issue links + SLA field).
+- **Frontend:** `src/frontend/` — Custom UI (HTML/CSS/JS). Entry is `index.html`, which loads `build/main.js` (generated) and `style.css`.
+- **Manifest:** `manifest.yml` — `jira:issuePanel` resource points at `src/frontend`.
 
-- Build and deploy your app by running:
-```
-forge deploy
-```
+## Panel behavior
 
-- Install your app in an Atlassian site by running:
-```
-forge install
-```
-
-- Develop your app by running `forge tunnel` to proxy invocations locally:
-```
-forge tunnel
-```
-
-### Notes
-- Use the `forge deploy` command when you want to persist code changes.
-- Use the `forge install` command when you want to install the app on a new site.
-- Once the app is installed on a site, the site picks up the new app changes you deploy without needing to rerun the install command.
-
+- Uses standard Jira **issue links** (REST `issuelinks`). “Linked work items” in Jira may come from a different source and are not included.
+- Finds an SLA custom field by name (e.g. containing “SLA”) and shows status (breached / at risk / within / no SLA) for each linked issue.

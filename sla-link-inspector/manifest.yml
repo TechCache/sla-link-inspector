@@ -1,5 +1,5 @@
 app:
-  id: ari:cloud:ecosystem::app/875126f5-5997-4d13-bf50-097ce475cee5
+  id: ari:cloud:ecosystem::app/cc8c3263-9d15-4454-9954-8bfdba52c1f4
   runtime:
     name: nodejs20.x
 
@@ -12,6 +12,8 @@ permissions:
   scopes:
     - read:jira-work
     - read:jira-user
+    - write:jira-work
+    - storage:app
 
 modules:
   jira:issuePanel:
