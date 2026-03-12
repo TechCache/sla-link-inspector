@@ -1,6 +1,8 @@
 # SLA Link Inspector (Forge app)
 
-Jira Forge app that shows SLA status of linked issues in an issue panel.
+For installation, features, and usage, see the [root README](../README.md).
+
+This directory contains the Forge app. Below is developer-focused reference.
 
 ## Build and deploy
 
@@ -15,7 +17,7 @@ Jira Forge app that shows SLA status of linked issues in an issue panel.
    ```
    This writes `src/frontend/build/main.js`. The panel loads this bundle instead of the raw module.
 
-3. **Deploy**:
+3. **Deploy:**
    ```bash
    forge deploy
    ```
