@@ -5,6 +5,14 @@ body {
   font-size: 13px;
 }
 
+.version-banner {
+  font-size: 10px;
+  color: #6b778c;
+  margin: 0 0 6px 0;
+  padding: 2px 0;
+  border-bottom: 1px dotted #dfe1e6;
+}
+
 h1 {
   color: #0747A6;
   font-size: 1.15rem;
@@ -95,4 +103,49 @@ h1 {
 .status-none {
   background: #f4f5f7;
   color: #6b778c;
+}
+
+.test-comment-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  background: #deebff;
+  color: #0052cc;
+  border: 1px solid #0052cc;
+  border-radius: 3px;
+}
+
+.test-comment-btn:hover:not(:disabled) {
+  background: #b3d4ff;
+}
+
+.test-comment-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.warn-assignee-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  background: #deebff;
+  color: #0052cc;
+  border: 1px solid #0052cc;
+  border-radius: 3px;
+}
+
+.warn-assignee-btn:hover:not(:disabled) {
+  background: #b3d4ff;
+}
+
+.warn-assignee-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

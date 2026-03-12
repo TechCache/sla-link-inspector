@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SLA Link Inspector – Configuration</title>
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <div id="app">
+    <h1>SLA Link Inspector</h1>
+    <p class="subtitle">Configure when and how to notify about linked-issue SLA status.</p>
+
+    <div id="error" class="error-message" style="display: none;"></div>
+    <div id="saved" class="saved-message" style="display: none;">Settings saved.</div>
+
+    <section class="config-section">
+      <h2>Trigger conditions</h2>
+      <p class="hint">Notify when a linked issue’s SLA becomes:</p>
+      <label class="checkbox-label"><input type="checkbox" id="triggerAtRisk" /> At risk</label>
+      <label class="checkbox-label"><input type="checkbox" id="triggerBreached" /> Breached</label>
+      <label class="checkbox-label"><input type="checkbox" id="trigger30MinRemaining" /> 30 minutes remaining</label>
+      <p class="hint small">Uses the same “At Risk” notify list below.</p>
+      <p class="hint" style="margin-top: 12px;"><label class="checkbox-label"><input type="checkbox" id="onlyNotifyIfOpen" /> Only notify if linked issue is still open</label></p>
+      <p class="hint small">When enabled, no alert is sent if the linked ticket is already resolved/done.</p>
+    </section>
+
+    <section class="config-section">
+      <h2>When SLA becomes <strong>At Risk</strong> → who gets notified</h2>
+      <p class="hint">Comment is posted on the parent issue and can @mention:</p>
+      <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyAssignee" /> Assignee</label>
+      <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyReporter" /> Reporter</label>
+      <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyWatchers" /> Watchers</label>
+      <p class="hint" style="margin-top: 10px;">Additional @mentions (e.g. manager, stakeholders):</p>
+      <div class="mention-picker">
+        <input type="text" id="atRiskMentionSearch" class="text-input" placeholder="Search by name or email..." style="max-width: 240px; margin-right: 8px;" />
+        <button type="button" id="atRiskMentionSearchBtn" class="btn btn-secondary">Search</button>
+        <div id="atRiskMentionResults" class="mention-results"></div>
+        <div id="atRiskMentionChips" class="mention-chips"></div>
+      </div>
+    </section>
+
+    <section class="config-section">
+      <h2>When SLA becomes <strong>Breached</strong> → who gets notified</h2>
+      <p class="hint">Use this for escalation (e.g. assignee + reporter as team lead):</p>
+      <label class="checkbox-label"><input type="checkbox" id="breachedNotifyAssignee" /> Assignee</label>
+      <label class="checkbox-label"><input type="checkbox" id="breachedNotifyReporter" /> Reporter</label>
+      <label class="checkbox-label"><input type="checkbox" id="breachedNotifyWatchers" /> Watchers</label>
+      <p class="hint" style="margin-top: 10px;">Additional @mentions (e.g. manager, stakeholders):</p>
+      <div class="mention-picker">
+        <input type="text" id="breachedMentionSearch" class="text-input" placeholder="Search by name or email..." style="max-width: 240px; margin-right: 8px;" />
+        <button type="button" id="breachedMentionSearchBtn" class="btn btn-secondary">Search</button>
+        <div id="breachedMentionResults" class="mention-results"></div>
+        <div id="breachedMentionChips" class="mention-chips"></div>
+      </div>
+    </section>
+
+    <section class="config-section">
+      <h2>Notification type</h2>
+      <p class="hint">Send notification as (you can enable more than one):</p>
+      <label class="checkbox-label"><input type="checkbox" id="notificationComment" /> Jira Comment</label>
+      <p class="hint small">Post a comment on the parent issue.</p>
+      <label class="checkbox-label"><input type="checkbox" id="notificationMention" /> Jira @Mention</label>
+      <p class="hint small">Include @mentions in the comment so assignee/reporter/watchers get notified. Uncheck to post without pinging.</p>
+      <label class="checkbox-label"><input type="checkbox" id="notificationSlack" /> Slack</label>
+      <p class="hint small" style="margin-left: 24px; margin-top: 4px;">Use either option below (webhook takes precedence if both are set).</p>
+      <p class="hint small" style="margin-left: 24px;"><strong>Option 1 – Incoming webhook:</strong></p>
+      <input type="url" id="slackWebhookUrl" class="text-input" placeholder="https://hooks.slack.com/services/..." style="margin-left: 24px; margin-top: 4px;" />
+      <p class="hint small" style="margin-left: 24px;">Create at api.slack.com → Your app → Incoming Webhooks → Add New Webhook to Workspace.</p>
+      <p class="hint small" style="margin-left: 24px; margin-top: 10px;"><strong>Option 2 – Web API (Bot token + channel):</strong></p>
+      <input type="text" id="slackChannelId" class="text-input" placeholder="Channel ID (e.g. C01234ABCD)" style="margin-left: 24px; margin-top: 4px; max-width: 280px;" />
+      <input type="password" id="slackBotToken" class="text-input" placeholder="xoxb-..." style="margin-left: 24px; margin-top: 4px; max-width: 400px;" autocomplete="off" />
+      <p class="hint small" style="margin-left: 24px;">You need a bot token. Either paste it here (from Slack: Your app → OAuth & Permissions → Bot User OAuth Token), or set the <code>SLACK_BOT_TOKEN</code> environment variable in Forge and leave this box blank. Channel ID: in Slack, open the channel → click the channel name → View channel details.</p>
+      <button type="button" id="testSlackBtn" class="btn btn-secondary" style="margin-left: 24px; margin-top: 8px;">Test Slack</button>
+      <label class="checkbox-label"><input type="checkbox" id="notificationEmail" /> Email (webhook)</label>
+      <input type="url" id="emailWebhookUrl" class="text-input" placeholder="https://hooks.zapier.com/... or Make.com webhook" style="margin-left: 24px; margin-top: 4px;" />
+      <p class="hint small">Webhook URL from Zapier, Make.com, or similar. They receive the payload and can send email. Use a Zap/Make scenario to forward to your email.</p>
+    </section>
+
+    <section class="config-section">
+      <h2>Custom message template</h2>
+      <p class="hint">Customize the comment text. Use variables:</p>
+      <ul class="vars-list">
+        <li><code>{{issueKey}}</code> – linked issue key</li>
+        <li><code>{{slaName}}</code> – SLA field name</li>
+        <li><code>{{remainingTime}}</code> – e.g. “9d left” or “2h overdue”</li>
+        <li><code>{{status}}</code> – at risk / breached / 30 minutes remaining</li>
+        <li><code>{{assignee}}</code> – @mention(s): assignee, reporter, watchers as configured for that trigger</li>
+      </ul>
+      <textarea id="customTemplate" class="template-input" rows="10" placeholder="Leave empty to use the default message."></textarea>
+    </section>
+
+    <div class="actions">
+      <button type="button" id="saveBtn" class="btn btn-primary">Save settings</button>
+    </div>
+  </div>
+  <script src="build/main.js"></script>
+</body>
+</html>

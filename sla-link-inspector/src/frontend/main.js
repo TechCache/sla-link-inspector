@@ -1,10 +1,12 @@
 import { invoke, view } from '@forge/bridge';
 
+const BUNDLE_VERSION = '2';
+console.log('[SLA Link Inspector] bundle loaded, v' + BUNDLE_VERSION);
+
 const LOADING = document.getElementById('loading');
 const ERROR_EL = document.getElementById('error');
 const EMPTY_EL = document.getElementById('empty');
 const TABLE_EL = document.getElementById('sla-table');
-const TABLE_BODY = document.querySelector('#sla-table tbody');
 const SUMMARY_EL = document.getElementById('sla-summary');
 
 function showState(which) {
@@ -45,7 +47,7 @@ function formatHoursLeft(hours) {
   return Math.round(hours / 24) + 'd';
 }
 
-function renderSLATable(linkedIssues) {
+function renderSLATable(linkedIssues, parentIssueKey) {
   const sorted = sortLinkedIssues(linkedIssues);
 
   const counts = { breached: 0, at_risk: 0, within: 0, none: 0, other: 0 };
@@ -56,7 +58,19 @@ function renderSLATable(linkedIssues) {
   });
   SUMMARY_EL.textContent = `Breached: ${counts.breached}  ·  At risk: ${counts.at_risk}  ·  Within SLA: ${counts.within}  ·  No SLA: ${counts.none}${counts.other ? '  ·  Other: ' + counts.other : ''}`;
 
-  TABLE_BODY.innerHTML = '';
+  // Build table entirely in JS so headers are always correct (no reliance on deployed HTML)
+  if (!TABLE_EL) {
+    console.warn('[SLA Link Inspector] #sla-table not found');
+    showState('table');
+    return;
+  }
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th>Ticket</th><th>Priority</th><th>Status</th><th>SLA status</th><th>Actions</th></tr>';
+  const tbody = document.createElement('tbody');
+  TABLE_EL.innerHTML = '';
+  TABLE_EL.appendChild(thead);
+  TABLE_EL.appendChild(tbody);
+
   sorted.forEach((ticket) => {
     const row = document.createElement('tr');
 
@@ -93,14 +107,49 @@ function renderSLATable(linkedIssues) {
     slaCell.appendChild(label);
     row.appendChild(slaCell);
 
-    TABLE_BODY.appendChild(row);
+    const actionsCell = document.createElement('td');
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'action-buttons';
+    const slaInfoBtn = document.createElement('button');
+    slaInfoBtn.type = 'button';
+    slaInfoBtn.className = 'warn-assignee-btn';
+    slaInfoBtn.textContent = 'Show SLA Details';
+    slaInfoBtn.title = 'Post a comment with when this ticket will be at risk and when it will breach';
+    slaInfoBtn.addEventListener('click', async () => {
+      slaInfoBtn.disabled = true;
+      slaInfoBtn.textContent = '…';
+      try {
+        const result = await invoke('warnAssigneeSlaDates', { parentIssueKey, linkedIssueKey: ticket.key });
+        if (result?.ok) {
+          alert(result.message || 'Comment posted.');
+        } else {
+          alert(result?.error || 'Failed to post comment.');
+        }
+      } catch (e) {
+        alert('Error: ' + (e.message || String(e)));
+      } finally {
+        slaInfoBtn.disabled = false;
+        slaInfoBtn.textContent = 'Show SLA Details';
+      }
+    });
+    actionsDiv.appendChild(slaInfoBtn);
+    actionsCell.appendChild(actionsDiv);
+    row.appendChild(actionsCell);
+
+    tbody.appendChild(row);
   });
 
   showState('table');
 }
 
+function setBundleVersionInBanner() {
+  const banner = document.getElementById('version-banner');
+  if (banner) banner.textContent = `SLA Link Inspector · v${BUNDLE_VERSION} · Ticket | Priority | Status | SLA`;
+}
+
 async function run() {
   showState('loading');
+  setBundleVersionInBanner();
 
   let issueKey;
   try {
@@ -133,7 +182,7 @@ async function run() {
       return;
     }
 
-    renderSLATable(linkedIssues);
+    renderSLATable(linkedIssues, issueKey);
   } catch (err) {
     console.error('[SLA Link Inspector] Frontend error:', err.message || err);
     setError(err.message || 'Failed to load linked issues.');

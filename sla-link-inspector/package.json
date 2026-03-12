@@ -8,7 +8,8 @@
     "lint": "eslint src/**/*",
     "build": "node scripts/bundle-frontend.js",
     "predeploy": "npm run build",
-    "deploy": "npm run build && forge deploy"
+    "deploy": "npm run build && forge deploy",
+    "deploy:dev": "npm run build && forge deploy -e development"
   },
   "devDependencies": {
     "esbuild": "^0.24.0",

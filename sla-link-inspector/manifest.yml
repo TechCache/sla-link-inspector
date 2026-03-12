@@ -1,5 +1,5 @@
 app:
-  id: ari:cloud:ecosystem::app/cc8c3263-9d15-4454-9954-8bfdba52c1f4
+  id: ari:cloud:ecosystem::app/875126f5-5997-4d13-bf50-097ce475cee5
   runtime:
     name: nodejs20.x
 
@@ -7,7 +7,12 @@ permissions:
   external:
     fetch:
       backend:
-        - "*.atlassian.net"
+        - address: "*.atlassian.net"
+        - address: "hooks.slack.com"
+        - address: "slack.com"
+        - address: "hooks.zapier.com"
+        - address: "hook.eu1.make.com"
+        - address: "hook.us1.make.com"
   content: {}
   scopes:
     - read:jira-work
@@ -20,9 +25,17 @@ modules:
     - key: sla-link-inspector-panel
       title: SLA Link Inspector
       icon: https://avatars.githubusercontent.com/u/214186582?v=4
-      resource: sla-ui
+      resource: sla-ui-v2
       resolver:
         function: resolver
+
+  jira:adminPage:
+    - key: sla-link-inspector-configure
+      resource: admin-ui
+      title: SLA Link Inspector
+      resolver:
+        function: resolver
+      useAsConfig: true
 
   function:
     - key: resolver
@@ -31,3 +44,7 @@ modules:
 resources:
   - key: sla-ui
     path: src/frontend
+  - key: sla-ui-v2
+    path: src/frontend
+  - key: admin-ui
+    path: src/admin
