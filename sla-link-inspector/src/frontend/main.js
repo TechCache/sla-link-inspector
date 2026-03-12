@@ -1,6 +1,7 @@
 import { invoke, view } from '@forge/bridge';
 
-const BUNDLE_VERSION = '2';
+// Injected at build time from package.json (see scripts/bundle-frontend.js)
+const BUNDLE_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
 console.log('[SLA Link Inspector] bundle loaded, v' + BUNDLE_VERSION);
 
 const LOADING = document.getElementById('loading');
@@ -9,6 +10,7 @@ const EMPTY_EL = document.getElementById('empty');
 const TABLE_EL = document.getElementById('sla-table');
 const SUMMARY_EL = document.getElementById('sla-summary');
 const PANEL_FEEDBACK_EL = document.getElementById('panel-feedback');
+const LICENSE_BANNER_EL = document.getElementById('license-banner');
 
 const PANEL_FEEDBACK_DURATION_MS = 3000;
 
@@ -68,7 +70,7 @@ function formatHoursLeft(hours) {
   return Math.round(hours / 24) + 'd';
 }
 
-function renderSLATable(linkedIssues, parentIssueKey) {
+function renderSLATable(linkedIssues, parentIssueKey, licensed = true) {
   const sorted = sortLinkedIssues(linkedIssues);
 
   const counts = { breached: 0, at_risk: 0, within: 0, none: 0, other: 0 };
@@ -135,8 +137,10 @@ function renderSLATable(linkedIssues, parentIssueKey) {
     slaInfoBtn.type = 'button';
     slaInfoBtn.className = 'warn-assignee-btn';
     slaInfoBtn.textContent = 'Show SLA Details';
-    slaInfoBtn.title = 'Post a comment with when this ticket will be at risk and when it will breach';
+    slaInfoBtn.title = licensed ? 'Post a comment with when this ticket will be at risk and when it will breach' : 'A valid license is required. Please upgrade from the Marketplace.';
+    slaInfoBtn.disabled = !licensed;
     slaInfoBtn.addEventListener('click', async () => {
+      if (!licensed) return;
       slaInfoBtn.disabled = true;
       slaInfoBtn.textContent = '…';
       try {
@@ -184,6 +188,17 @@ async function run() {
 
   try {
     const result = await invoke('getLinkedIssueSlas', issueKey ? { issueKey } : {});
+    const licensed = result.licenseStatus?.licensed !== false;
+
+    if (LICENSE_BANNER_EL) {
+      if (!licensed) {
+        LICENSE_BANNER_EL.textContent = result.licenseStatus?.reason || 'A valid license is required. Please upgrade from the Marketplace to use SLA Link Inspector.';
+        LICENSE_BANNER_EL.style.display = 'block';
+      } else {
+        LICENSE_BANNER_EL.style.display = 'none';
+      }
+    }
+
     if (result.error && (!result.linkedIssues || result.linkedIssues.length === 0)) {
       console.error('[SLA Link Inspector] Frontend: resolver error', result.error);
       setError(result.error || 'Failed to load linked issues.');
@@ -203,7 +218,7 @@ async function run() {
       return;
     }
 
-    renderSLATable(linkedIssues, result.issueKey ?? issueKey);
+    renderSLATable(linkedIssues, result.issueKey ?? issueKey, licensed);
   } catch (err) {
     console.error('[SLA Link Inspector] Frontend error:', err.message || err);
     setError(err.message || 'Failed to load linked issues.');

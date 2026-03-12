@@ -6,6 +6,15 @@ const frontendDir = path.join(__dirname, '..', 'src', 'frontend');
 const outDir = path.join(frontendDir, 'build');
 const adminDir = path.join(__dirname, '..', 'src', 'admin');
 const adminOutDir = path.join(adminDir, 'build');
+const pkgPath = path.join(__dirname, '..', 'package.json');
+const appVersion = (() => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 fs.mkdirSync(outDir, { recursive: true });
 fs.mkdirSync(adminOutDir, { recursive: true });
@@ -19,6 +28,7 @@ function run() {
       outfile: path.join(outDir, 'main.js'),
       platform: 'browser',
       target: ['es2020'],
+      define: { __APP_VERSION__: JSON.stringify(appVersion) },
     });
     const indexPath = path.join(frontendDir, 'index.html');
     let indexHtml = fs.readFileSync(indexPath, 'utf8');

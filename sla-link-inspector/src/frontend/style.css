@@ -13,6 +13,16 @@ body {
   border-bottom: 1px dotted #dfe1e6;
 }
 
+.license-banner {
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-bottom: 10px;
+  background: #fff4e6;
+  color: #b36200;
+  border: 1px solid #ffab00;
+}
+
 h1 {
   color: #0747A6;
   font-size: 1.15rem;

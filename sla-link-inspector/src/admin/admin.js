@@ -26,9 +26,11 @@ const errorEl = document.getElementById('error');
 const savedEl = document.getElementById('saved');
 const feedbackEl = document.getElementById('feedback');
 const saveBtn = document.getElementById('saveBtn');
+const licenseBannerEl = document.getElementById('license-banner');
 
 let additionalMentionsAtRisk = [];
 let additionalMentionsBreached = [];
+let isLicensed = true;
 
 function showError(msg) {
   if (errorEl) {
@@ -104,6 +106,18 @@ function payloadToForm(payload) {
 async function load() {
   try {
     const config = await invoke('getAdminConfig');
+    isLicensed = config.licenseStatus?.licensed !== false;
+    if (licenseBannerEl) {
+      if (!isLicensed) {
+        licenseBannerEl.textContent = config.licenseStatus?.reason || 'A valid license is required. Please upgrade from the Marketplace to save settings or test Slack.';
+        licenseBannerEl.style.display = 'block';
+      } else {
+        licenseBannerEl.style.display = 'none';
+      }
+    }
+    if (saveBtn) saveBtn.disabled = !isLicensed;
+    const testSlackBtnEl = document.getElementById('testSlackBtn');
+    if (testSlackBtnEl) testSlackBtnEl.disabled = !isLicensed;
     payloadToForm(config);
     additionalMentionsAtRisk = Array.isArray(config.atRiskAdditionalMentions) ? config.atRiskAdditionalMentions : [];
     additionalMentionsBreached = Array.isArray(config.breachedAdditionalMentions) ? config.breachedAdditionalMentions : [];
@@ -115,6 +129,7 @@ async function load() {
 }
 
 async function save() {
+  if (!isLicensed) return;
   const payload = formToPayload();
   payload.atRiskAdditionalMentions = additionalMentionsAtRisk;
   payload.breachedAdditionalMentions = additionalMentionsBreached;
@@ -140,7 +155,7 @@ load();
 
 async function testSlack() {
   const btn = document.getElementById('testSlackBtn');
-  if (!btn) return;
+  if (!btn || !isLicensed) return;
   const webhookUrl = (getInput('slackWebhookUrl')?.value || '').trim();
   const channelId = (getInput('slackChannelId')?.value || '').trim();
   const botToken = (getInput('slackBotToken')?.value || '').trim();

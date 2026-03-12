@@ -245,6 +245,10 @@ resolver.define('getLicenseStatus', async () => {
 });
 
 resolver.define('setAdminConfig', async ({ payload }) => {
+  const licenseStatus = getLicenseStatus();
+  if (licenseStatus.isProduction && !licenseStatus.licensed) {
+    return { ok: false, error: licenseStatus.reason || 'A valid license is required. Please upgrade from the Marketplace.' };
+  }
   if (payload == null || typeof payload !== 'object') {
     return { ok: false, error: 'Invalid payload.' };
   }
@@ -287,6 +291,10 @@ resolver.define('setAdminConfig', async ({ payload }) => {
  * Payload: optional { slackWebhookUrl, slackChannelId, slackBotToken }. If omitted, uses saved admin config.
  */
 resolver.define('testSlackWebhook', async ({ payload }) => {
+  const licenseStatus = getLicenseStatus();
+  if (licenseStatus.isProduction && !licenseStatus.licensed) {
+    return { ok: false, error: licenseStatus.reason || 'A valid license is required. Please upgrade from the Marketplace.' };
+  }
   const config = payload && (payload.slackWebhookUrl != null || payload.slackChannelId != null || payload.slackBotToken != null)
     ? payload
     : await getAdminConfig();
@@ -786,6 +794,10 @@ resolver.define('testFireSlaComment', async ({ payload }) => {
  * Payload: { parentIssueKey, linkedIssueKey }.
  */
 resolver.define('warnAssigneeSlaDates', async ({ payload }) => {
+  const licenseStatus = getLicenseStatus();
+  if (licenseStatus.isProduction && !licenseStatus.licensed) {
+    return { ok: false, error: licenseStatus.reason || 'A valid license is required. Please upgrade from the Marketplace.' };
+  }
   const linkedIssueKey = payload?.linkedIssueKey != null ? String(payload.linkedIssueKey).trim() : '';
   const parentIssueKey = payload?.parentIssueKey != null ? String(payload.parentIssueKey).trim() : '';
   if (!linkedIssueKey) return { ok: false, error: 'Missing linkedIssueKey.' };
