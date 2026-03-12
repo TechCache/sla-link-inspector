@@ -25,6 +25,25 @@ h1 {
   padding: 10px 14px;
   border-radius: 6px;
   margin-bottom: 16px;
+  display: none;
+}
+
+.feedback-area .error-message.feedback-visible,
+.feedback-area .saved-message.feedback-visible {
+  display: block;
+}
+
+.feedback-area-hidden {
+  display: none !important;
+}
+
+.feedback-area {
+  margin-bottom: 16px;
+}
+
+.feedback-area .error-message,
+.feedback-area .saved-message {
+  margin-bottom: 0;
 }
 
 .saved-message {
@@ -33,6 +52,7 @@ h1 {
   padding: 10px 14px;
   border-radius: 6px;
   margin-bottom: 16px;
+  display: none;
 }
 
 .config-section {

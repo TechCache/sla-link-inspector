@@ -46,6 +46,27 @@ h1 {
   color: #42526e;
 }
 
+.panel-feedback {
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.panel-feedback-hidden {
+  display: none !important;
+}
+
+.panel-feedback.panel-feedback-success {
+  background: #e3fcef;
+  color: #006644;
+}
+
+.panel-feedback.panel-feedback-error {
+  background: #ffebe6;
+  color: #bf2600;
+}
+
 #sla-table {
   border-collapse: collapse;
   width: 100%;

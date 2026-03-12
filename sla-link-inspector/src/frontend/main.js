@@ -8,6 +8,26 @@ const ERROR_EL = document.getElementById('error');
 const EMPTY_EL = document.getElementById('empty');
 const TABLE_EL = document.getElementById('sla-table');
 const SUMMARY_EL = document.getElementById('sla-summary');
+const PANEL_FEEDBACK_EL = document.getElementById('panel-feedback');
+
+const PANEL_FEEDBACK_DURATION_MS = 3000;
+
+function showPanelSuccess(message) {
+  if (!PANEL_FEEDBACK_EL) return;
+  PANEL_FEEDBACK_EL.textContent = message;
+  PANEL_FEEDBACK_EL.className = 'panel-feedback panel-feedback-success';
+  clearTimeout(showPanelSuccess._timeout);
+  showPanelSuccess._timeout = setTimeout(() => {
+    PANEL_FEEDBACK_EL.className = 'panel-feedback panel-feedback-hidden';
+  }, PANEL_FEEDBACK_DURATION_MS);
+}
+
+function showPanelError(message) {
+  if (!PANEL_FEEDBACK_EL) return;
+  clearTimeout(showPanelSuccess._timeout);
+  PANEL_FEEDBACK_EL.textContent = message;
+  PANEL_FEEDBACK_EL.className = 'panel-feedback panel-feedback-error';
+}
 
 function showState(which) {
   LOADING.style.display = which === 'loading' ? 'block' : 'none';
@@ -42,6 +62,7 @@ function statusClass(slaStatus) {
 }
 
 function formatHoursLeft(hours) {
+  // Mirrors resolver's formatHours for display (hours assumed positive; "left"/"overdue" added by caller).
   if (hours < 1) return Math.round(hours * 60) + 'm';
   if (hours < 24) return Math.round(hours) + 'h';
   return Math.round(hours / 24) + 'd';
@@ -121,12 +142,12 @@ function renderSLATable(linkedIssues, parentIssueKey) {
       try {
         const result = await invoke('warnAssigneeSlaDates', { parentIssueKey, linkedIssueKey: ticket.key });
         if (result?.ok) {
-          alert(result.message || 'Comment posted.');
+          showPanelSuccess(result.message || 'SLA comment posted.');
         } else {
-          alert(result?.error || 'Failed to post comment.');
+          showPanelError(result?.error || 'Unable to post comment.');
         }
       } catch (e) {
-        alert('Error: ' + (e.message || String(e)));
+        showPanelError('Error: ' + (e.message || String(e)));
       } finally {
         slaInfoBtn.disabled = false;
         slaInfoBtn.textContent = 'Show SLA Details';
@@ -144,7 +165,7 @@ function renderSLATable(linkedIssues, parentIssueKey) {
 
 function setBundleVersionInBanner() {
   const banner = document.getElementById('version-banner');
-  if (banner) banner.textContent = `SLA Link Inspector · v${BUNDLE_VERSION} · Ticket | Priority | Status | SLA`;
+  if (banner) banner.textContent = `Version · v${BUNDLE_VERSION}`;
 }
 
 async function run() {
@@ -182,7 +203,7 @@ async function run() {
       return;
     }
 
-    renderSLATable(linkedIssues, issueKey);
+    renderSLATable(linkedIssues, result.issueKey ?? issueKey);
   } catch (err) {
     console.error('[SLA Link Inspector] Frontend error:', err.message || err);
     setError(err.message || 'Failed to load linked issues.');

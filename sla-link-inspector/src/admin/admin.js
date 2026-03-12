@@ -11,11 +11,6 @@ const CONFIG_KEYS = [
   'breachedNotifyAssignee',
   'breachedNotifyReporter',
   'breachedNotifyWatchers',
-  'notifyAssignee',
-  'notifyReporter',
-  'notifyWatchers',
-  'notifyCustom',
-  'customUserGroup',
   'notificationComment',
   'notificationMention',
   'notificationEmail',
@@ -29,6 +24,7 @@ const CONFIG_KEYS = [
 
 const errorEl = document.getElementById('error');
 const savedEl = document.getElementById('saved');
+const feedbackEl = document.getElementById('feedback');
 const saveBtn = document.getElementById('saveBtn');
 
 let additionalMentionsAtRisk = [];
@@ -37,17 +33,28 @@ let additionalMentionsBreached = [];
 function showError(msg) {
   if (errorEl) {
     errorEl.textContent = msg || 'Something went wrong.';
-    errorEl.style.display = 'block';
-    if (savedEl) savedEl.style.display = 'none';
+    errorEl.classList.add('feedback-visible');
+    if (savedEl) savedEl.classList.remove('feedback-visible');
+    if (feedbackEl) feedbackEl.classList.remove('feedback-area-hidden');
   }
 }
 
 function showSaved() {
   if (savedEl) {
-    savedEl.style.display = 'block';
-    if (errorEl) errorEl.style.display = 'none';
-    setTimeout(() => { savedEl.style.display = 'none'; }, 3000);
+    savedEl.classList.add('feedback-visible');
+    if (errorEl) errorEl.classList.remove('feedback-visible');
+    if (feedbackEl) feedbackEl.classList.remove('feedback-area-hidden');
+    setTimeout(() => {
+      savedEl.classList.remove('feedback-visible');
+      if (feedbackEl && !errorEl?.classList.contains('feedback-visible')) feedbackEl.classList.add('feedback-area-hidden');
+    }, 3000);
   }
+}
+
+function hideFeedback() {
+  if (errorEl) errorEl.classList.remove('feedback-visible');
+  if (savedEl) savedEl.classList.remove('feedback-visible');
+  if (feedbackEl) feedbackEl.classList.add('feedback-area-hidden');
 }
 
 function getCheckbox(id) {
@@ -112,8 +119,7 @@ async function save() {
   payload.atRiskAdditionalMentions = additionalMentionsAtRisk;
   payload.breachedAdditionalMentions = additionalMentionsBreached;
   saveBtn.disabled = true;
-  errorEl.style.display = 'none';
-  savedEl.style.display = 'none';
+  hideFeedback();
   try {
     const result = await invoke('setAdminConfig', payload);
     if (result && result.ok) {
@@ -129,6 +135,7 @@ async function save() {
 }
 
 saveBtn.addEventListener('click', save);
+hideFeedback();
 load();
 
 async function testSlack() {
@@ -138,7 +145,7 @@ async function testSlack() {
   const channelId = (getInput('slackChannelId')?.value || '').trim();
   const botToken = (getInput('slackBotToken')?.value || '').trim();
   btn.disabled = true;
-  if (errorEl) errorEl.style.display = 'none';
+  hideFeedback();
   try {
     const payload = { slackWebhookUrl: webhookUrl || undefined, slackChannelId: channelId || undefined, slackBotToken: botToken || undefined };
     const result = await invoke('testSlackWebhook', payload);

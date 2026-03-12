@@ -229,8 +229,15 @@ resolver.define('setAdminConfig', async ({ payload }) => {
       if (value != null && String(value).trim() !== '') toStore[key] = String(value).trim();
     }
     else if ((key === 'atRiskAdditionalMentions' || key === 'breachedAdditionalMentions') && Array.isArray(value)) {
+      const seen = new Set();
       toStore[key] = value
         .filter((m) => m && m.accountId)
+        .filter((m) => {
+          const id = String(m.accountId);
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        })
         .map((m) => ({ accountId: String(m.accountId), displayName: m.displayName != null ? String(m.displayName) : '' }));
     } else if (typeof value === 'boolean') toStore[key] = value;
   }
@@ -256,7 +263,7 @@ resolver.define('testSlackWebhook', async ({ payload }) => {
   if (!params) {
     return { ok: false, error: 'Configure either an Incoming Webhook URL or a Bot token + Channel ID (and optionally set SLACK_BOT_TOKEN in Forge env).' };
   }
-  const testMessage = 'SLA Link Inspector: Test message. If you see this, your Slack integration is working.';
+  const testMessage = 'Test message. If you see this, your Slack integration is working.';
   try {
     if (params.method === 'webhook') {
       const res = await fetch(params.webhookUrl, {
@@ -321,7 +328,7 @@ function buildSlaAlertCommentBody(linkedIssueKey, slaStatus, mentions, opts = {}
     return templateToAdf(customTemplate, vars, mentions);
   }
   const content = [
-    { type: 'text', text: 'SLA Link Inspector: Linked ticket ' },
+    { type: 'text', text: 'Linked ticket ' },
     { type: 'text', text: linkedIssueKey, marks: [{ type: 'strong' }] },
     { type: 'text', text: "'s SLA is now " },
     { type: 'text', text: statusText, marks: [{ type: 'strong' }] },
@@ -385,8 +392,8 @@ function templateToAdf(template, vars, mentions) {
 
 /**
  * Build ADF body for a "warn assignee" comment with at-risk and breach dates.
- * Comment is posted on the parent issue; assignee is the parent's assignee. linkedIssueKey identifies the linked ticket.
- * @param {object} opts - { linkedIssueKey, atRiskDate, breachedDate, alreadyAtRisk, alreadyBreached, assigneeAccountId, assigneeDisplayName }
+ * Comment is posted on the parent issue. linkedIssueKey identifies the linked ticket.
+ * @param {object} opts - { linkedIssueKey, atRiskDate, breachedDate, alreadyAtRisk, alreadyBreached }
  */
 function buildWarnAssigneeCommentBody(opts) {
   const {
@@ -395,12 +402,10 @@ function buildWarnAssigneeCommentBody(opts) {
     breachedDate,
     alreadyAtRisk,
     alreadyBreached,
-    assigneeAccountId,
-    assigneeDisplayName,
   } = opts;
   const formatDate = (d) => (d != null ? new Date(d).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : null);
   const ticketRef = linkedIssueKey ? `Linked ticket ${linkedIssueKey}'s SLA` : 'This ticket\'s SLA';
-  const content = [{ type: 'text', text: 'SLA Link Inspector: ', marks: [{ type: 'strong' }] }];
+  const content = [{ type: 'text', text: 'SLA status: ', marks: [{ type: 'strong' }] }];
   if (alreadyBreached) {
     content.push({ type: 'text', text: `${ticketRef} is already breached (as of ${formatDate(breachedDate)}). ` });
   } else if (alreadyAtRisk) {
@@ -593,7 +598,7 @@ async function maybeCommentOnSlaChange(jira, linkedIssue, parentIssueKey, parent
     }
     const vars = { issueKey: key, slaName: slaLabel || 'SLA', remainingTime: remainingTimeStr, status: slaStatus === 'breached' ? 'breached' : 'at risk' };
     const plainText = buildPlainTextMessage(config.customTemplate || null, vars, mentions);
-    const defaultMsg = `SLA Link Inspector: Linked ticket ${key} is now ${vars.status}. Time remaining: ${remainingTimeStr}.`;
+    const defaultMsg = `SLA status: Linked ticket ${key} is now ${vars.status}. Time remaining: ${remainingTimeStr}.`;
     const messageForChannels = plainText || defaultMsg;
     const slackParams = getSlackSendParams(config);
     if (config.notificationSlack && slackParams) {
@@ -809,8 +814,6 @@ resolver.define('warnAssigneeSlaDates', async ({ payload }) => {
       breachedDate,
       alreadyAtRisk,
       alreadyBreached,
-      assigneeAccountId: parentAccountId,
-      assigneeDisplayName: parentDisplayName,
     });
     const commentRes = await jira(route`/rest/api/3/issue/${parentIssueKey}/comment`, {
       method: 'POST',
