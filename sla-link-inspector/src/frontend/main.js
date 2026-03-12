@@ -212,8 +212,8 @@ async function run() {
       const emptyEl = document.getElementById('empty');
       const checkedKey = result.issueKey;
       emptyEl.textContent = checkedKey
-        ? `No linked issues returned for ${checkedKey}. The panel uses standard Jira issue links (REST API); "Linked work items" may use a different source.`
-        : 'No linked issues returned for this ticket. The panel shows standard Jira issue links only.';
+        ? `No linked issues for ${checkedKey}, or none you have access to. The panel shows standard Jira issue links only—and only for issues in projects you can see.`
+        : 'No linked issues for this ticket, or none you have access to. The panel shows standard Jira issue links only—and only for issues in projects you can see.';
       showState('empty');
       return;
     }

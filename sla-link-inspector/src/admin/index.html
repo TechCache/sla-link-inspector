@@ -8,12 +8,12 @@
 <body>
   <div id="app">
     <h1>Configuration</h1>
-    <p class="subtitle">Configure when and how to notify about linked-issue SLA status.</p>
+    <p class="subtitle">Configure when and how to notify about linked-issue SLA status. The panel only shows SLA for linked issues in projects the viewing user can access.</p>
     <div id="license-banner" class="license-banner" style="display: none;" role="alert"></div>
 
     <section class="config-section requirements-notice">
-      <h2>Requirements</h2>
-      <p class="hint">The panel shows SLA only for linked issues that the <strong>viewing user</strong> can access. Jira enforces project permissions: if a user has no access to a linked issue’s project, that issue will appear as “Error loading” in the panel. To see SLAs for links into other queues or projects, users need at least <strong>browse</strong> access to those projects.</p>
+      <h2>How the panel works</h2>
+      <p class="hint">The panel shows SLA only for linked issues in projects the <strong>viewing user</strong> can already see in Jira. We don’t bypass permissions: if a user has no access to a linked issue’s project, that row shows “Error loading.” To see SLAs for other queues or projects, grant users at least <strong>browse</strong> access to those projects.</p>
     </section>
 
     <section class="config-section">
