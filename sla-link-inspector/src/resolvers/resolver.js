@@ -1,8 +1,34 @@
 import Resolver from '@forge/resolver';
-import api, { route } from '@forge/api';
+import api, { route, getAppContext } from '@forge/api';
 import { kvs } from '@forge/kvs';
 
 const resolver = new Resolver();
+
+/**
+ * Get license status for Marketplace paid app. In PRODUCTION, a valid paid license has license?.isActive === true.
+ * In DEVELOPMENT/STAGING (or when unlisted), license is undefined — we treat as allowed for development.
+ * @returns {{ licensed: boolean, reason?: string, isProduction?: boolean }}
+ */
+function getLicenseStatus() {
+  try {
+    const ctx = getAppContext();
+    const isProduction = ctx.environmentType === 'PRODUCTION';
+    const license = ctx.license;
+    if (!isProduction) {
+      return { licensed: true, isProduction: false };
+    }
+    if (license != null && license.isActive === true) {
+      return { licensed: true, isProduction: true };
+    }
+    if (license != null && license.isActive === false) {
+      return { licensed: false, reason: 'License is not active.', isProduction: true };
+    }
+    return { licensed: false, reason: 'A valid license is required. Please upgrade from the Marketplace.', isProduction: true };
+  } catch (e) {
+    console.error('[SLA Link Inspector] getLicenseStatus error', e?.message);
+    return { licensed: true, reason: undefined, isProduction: false };
+  }
+}
 
 const SLA_STATUS_STORAGE_PREFIX = 'sla-link-inspector:';
 const ADMIN_CONFIG_KEY = SLA_STATUS_STORAGE_PREFIX + 'admin-config';
@@ -210,7 +236,12 @@ function normalizeSlaStatus(raw) {
 }
 
 resolver.define('getAdminConfig', async () => {
-  return getAdminConfig();
+  const config = await getAdminConfig();
+  return { ...config, licenseStatus: getLicenseStatus() };
+});
+
+resolver.define('getLicenseStatus', async () => {
+  return getLicenseStatus();
 });
 
 resolver.define('setAdminConfig', async ({ payload }) => {
@@ -834,6 +865,7 @@ resolver.define('warnAssigneeSlaDates', async ({ payload }) => {
 });
 
 resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
+  const licenseStatus = getLicenseStatus();
   const issueKey =
     payload?.issueKey ||
     context?.extension?.issue?.key ||
@@ -844,7 +876,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
 
   if (!safeIssueKey) {
     console.log('[SLA Link Inspector] Resolver: no issue key in payload or context', JSON.stringify({ hasPayload: !!payload, contextKeys: context ? Object.keys(context) : [] }));
-    return { error: 'No issue key. Open this panel from a Jira issue view.', linkedIssues: [] };
+    return { error: 'No issue key. Open this panel from a Jira issue view.', linkedIssues: [], licenseStatus };
   }
 
   console.log('[SLA Link Inspector] Resolver: selected issue key', safeIssueKey);
@@ -865,7 +897,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
     if (!issueRes.ok) {
       const errText = await issueRes.text();
       console.error('[SLA Link Inspector] Resolver: failed to load issue', issueRes.status, errText);
-      return { error: `Failed to load issue: ${issueRes.status} ${errText}`, linkedIssues: [] };
+      return { error: `Failed to load issue: ${issueRes.status} ${errText}`, linkedIssues: [], licenseStatus };
     }
 
     const issueData = await issueRes.json();
@@ -902,7 +934,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
     console.log('[SLA Link Inspector] Resolver: linked issues returned', linkedKeys.size);
 
     if (linkedKeys.size === 0) {
-      return { linkedIssues: [], issueKey: safeIssueKey };
+      return { linkedIssues: [], issueKey: safeIssueKey, licenseStatus };
     }
 
     const fieldsParam = ['summary', 'status', 'assignee', 'priority'];
@@ -1039,13 +1071,14 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
       }
     }
 
-    return { linkedIssues, issueKey: safeIssueKey };
+    return { linkedIssues, issueKey: safeIssueKey, licenseStatus };
   } catch (err) {
     console.error('[SLA Link Inspector] Resolver error:', err.message || err);
     return {
       error: err.message || 'Unknown error',
       linkedIssues: [],
       issueKey: safeIssueKey,
+      licenseStatus: getLicenseStatus(),
     };
   }
 });
