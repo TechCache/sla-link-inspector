@@ -1,4 +1,4 @@
-import { invoke, view } from '@forge/bridge';
+import { invoke, view, router, NavigationTarget } from '@forge/bridge';
 
 // Injected at build time from package.json (see scripts/bundle-frontend.js)
 const BUNDLE_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
@@ -182,6 +182,20 @@ async function run() {
     console.error('[Linked SLA Alerts] Frontend error:', err.message || err);
     setError(err.message || 'Failed to load linked issues.');
   }
+}
+
+function openAdmin() {
+  router.open({ target: NavigationTarget.Module, moduleKey: 'sla-link-inspector-configure' }).catch((e) => {
+    console.error('[Linked SLA Alerts] Failed to open admin', e?.message || e);
+  });
+}
+
+const adminLinkEl = document.getElementById('panel-admin-link');
+if (adminLinkEl) {
+  adminLinkEl.addEventListener('click', (e) => {
+    e.preventDefault();
+    openAdmin();
+  });
 }
 
 run();

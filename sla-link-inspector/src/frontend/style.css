@@ -254,3 +254,20 @@ h1 {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+.panel-admin-link-wrap {
+  margin: 14px 0 0 0;
+  padding-top: 10px;
+  border-top: 1px solid #dfe1e6;
+}
+
+.panel-admin-link {
+  font-size: 11px;
+  color: #6b778c;
+  text-decoration: none;
+}
+
+.panel-admin-link:hover {
+  color: #0052cc;
+  text-decoration: underline;
+}
