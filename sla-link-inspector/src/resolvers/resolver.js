@@ -71,6 +71,9 @@ The SLA "{{slaName}}" is now {{status}}.
 Time remaining: {{remainingTime}}
 
 Please review this issue to avoid breach. {{assignee}}`,
+  // Optional override when auto-detect doesn't find your SLA field (e.g. different name or language)
+  slaFieldId: '',
+  slaFieldName: '',
 };
 
 async function getAdminConfig() {
@@ -96,21 +99,43 @@ function projectKeyFromIssueKey(issueKey) {
 }
 
 /**
- * Find a custom field ID for SLA (case-insensitive).
- * Matches names containing: "sla", "time to resolution", "time to first response".
+ * Find a custom field ID for SLA by name (case-insensitive).
+ * Matches names containing: sla, time to resolution, goal, target, etc.
  * Returns { id, name } or null.
  */
 async function findSlaFieldId() {
   const res = await api.asApp().requestJira(route`/rest/api/3/field`);
   if (!res.ok) return null;
   const fields = await res.json();
-  const patterns = ['sla', 'time to resolution', 'time to first response'];
+  const patterns = [
+    'sla',
+    'time to resolution',
+    'time to resolve',
+    'time to first response',
+    'goal duration',
+    'sla goal',
+    'resolution time',
+    'target time',
+    'time remaining',
+  ];
   const slaField = fields.find((f) => {
     if (!f.name) return false;
     const name = String(f.name).toLowerCase();
     return patterns.some((p) => name.includes(p));
   });
   return slaField ? { id: slaField.id, name: slaField.name || slaField.id } : null;
+}
+
+/**
+ * Get SLA field to use: admin override (if set) or auto-detect. Use this for all SLA reads.
+ */
+async function getSlaFieldForRequest() {
+  const config = await getAdminConfig();
+  const id = config.slaFieldId != null ? String(config.slaFieldId).trim() : '';
+  if (id) {
+    return { id, name: (config.slaFieldName != null ? String(config.slaFieldName).trim() : id) || id };
+  }
+  return await findSlaFieldId();
 }
 
 /**
@@ -135,6 +160,41 @@ function getSlaData(issueFields, slaFieldId) {
       }
     }
   }
+  // Fallback: find any field value that looks like an SLA object (e.g. current issue uses a different custom field)
+  if (raw == null && issueFields && typeof issueFields === 'object') {
+    for (const value of Object.values(issueFields)) {
+      if (value != null && typeof value === 'object' && (
+        value.remainingDuration != null ||
+        value.currentCycle?.remainingTime != null ||
+        value.ongoingCycle?.remainingTime != null ||
+        value.targetDate != null ||
+        value.dueDate != null ||
+        value.ongoingCycle?.targetDate != null
+      )) {
+        raw = value;
+        break;
+      }
+    }
+  }
+
+  // Fallback: Jira/SLM often show SLA as due date on the issue (e.g. "Mar 20 07:33" in sidebar)
+  if (raw == null && issueFields && typeof issueFields === 'object' && issueFields.duedate) {
+    const due = issueFields.duedate;
+    const dueStr = typeof due === 'string' ? due : (due?.value ?? due?.iso ?? null);
+    if (dueStr) {
+      const dueMs = new Date(dueStr).getTime();
+      if (!Number.isNaN(dueMs)) {
+        const remainingMs = dueMs - Date.now();
+        const hoursRemaining = remainingMs / (1000 * 60 * 60);
+        const totalHours = Math.max(0, hoursRemaining) + 1;
+        let status = 'within';
+        if (hoursRemaining <= 0) status = 'breached';
+        else if (hoursRemaining <= totalHours * 0.25) status = 'at_risk';
+        const label = 'Time to resolution';
+        return { label, status, hoursRemaining, totalHours };
+      }
+    }
+  }
 
   if (raw == null) return none;
 
@@ -152,6 +212,11 @@ function getSlaData(issueFields, slaFieldId) {
     if (remainingMs == null && raw.ongoingCycle?.remainingTime != null) {
       const rt = raw.ongoingCycle.remainingTime;
       remainingMs = typeof rt === 'number' ? rt : rt.milliseconds ?? rt.millis;
+    }
+    if (remainingMs == null && (raw.targetDate != null || raw.dueDate != null || raw.ongoingCycle?.targetDate != null)) {
+      const dateStr = raw.targetDate ?? raw.dueDate ?? raw.ongoingCycle?.targetDate;
+      const dateMs = typeof dateStr === 'string' ? new Date(dateStr).getTime() : (dateStr?.epochMillis ?? null);
+      if (dateMs != null && !Number.isNaN(dateMs)) remainingMs = dateMs - Date.now();
     }
 
     const elapsedMs = raw.elapsedDuration ?? raw.ongoingCycle?.elapsedTime?.millis ?? raw.ongoingCycle?.elapsedTime?.milliseconds ?? 0;
@@ -188,6 +253,38 @@ function getSlaData(issueFields, slaFieldId) {
   }
 
   return none;
+}
+
+/**
+ * Fetch SLA from Jira Service Management API when issue fields don't contain it.
+ * GET /rest/servicedeskapi/request/{issueIdOrKey}/sla returns SLAs with ongoingCycle.remainingTime.millis.
+ * Returns { label, status, hoursRemaining, totalHours } or null if not JSM or no SLA.
+ */
+async function getSlaDataFromJsm(jira, issueKey) {
+  try {
+    const res = await jira(route`/rest/servicedeskapi/request/${issueKey}/sla`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const values = data?.values;
+    if (!Array.isArray(values) || values.length === 0) return null;
+    // Prefer "Time to resolution" / "Time To Resolution", else first SLA
+    const sla = values.find((s) => /time to resolution/i.test(s?.name || '')) || values[0];
+    const cycle = sla?.ongoingCycle;
+    if (!cycle) return null;
+    const remainingMs = cycle.remainingTime?.millis ?? cycle.remainingTime?.milliseconds;
+    if (remainingMs == null) return null;
+    const hoursRemaining = remainingMs / (1000 * 60 * 60);
+    const goalMs = cycle.goalDuration?.millis ?? cycle.goalDuration?.milliseconds ?? 0;
+    const totalHours = goalMs / (1000 * 60 * 60);
+    let status = 'within';
+    if (cycle.breached === true || hoursRemaining <= 0) status = 'breached';
+    else if (totalHours > 0 && hoursRemaining <= totalHours * 0.25) status = 'at_risk';
+    const label = sla.name || 'Time to resolution';
+    return { label, status, hoursRemaining, totalHours };
+  } catch (e) {
+    console.error('[SLA Link Inspector] getSlaDataFromJsm error', e?.message);
+    return null;
+  }
 }
 
 function formatHours(hours) {
@@ -263,6 +360,7 @@ resolver.define('setAdminConfig', async ({ payload }) => {
     else if (key === 'slackBotToken') {
       if (value != null && String(value).trim() !== '') toStore[key] = String(value).trim();
     }
+    else if ((key === 'slaFieldId' || key === 'slaFieldName') && value != null) toStore[key] = String(value).trim();
     else if ((key === 'atRiskAdditionalMentions' || key === 'breachedAdditionalMentions') && Array.isArray(value)) {
       const seen = new Set();
       toStore[key] = value
@@ -349,6 +447,119 @@ resolver.define('searchJiraUsers', async ({ payload }) => {
     return { users: [] };
   }
 });
+
+/**
+ * Status label for "Send to linked tickets" message: At-Risk, Breached, In SLA range.
+ */
+function sendToLinkedStatusLabel(slaStatus) {
+  if (slaStatus === 'at_risk') return 'At-Risk';
+  if (slaStatus === 'breached') return 'Breached';
+  return 'In SLA range';
+}
+
+/**
+ * Build expiration date string from hoursRemaining (hours). Returns formatted date or "—" if unknown.
+ */
+function formatExpirationDate(hoursRemaining) {
+  if (hoursRemaining == null || typeof hoursRemaining !== 'number') return '—';
+  const expMs = Date.now() + hoursRemaining * 60 * 60 * 1000;
+  return new Date(expMs).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/**
+ * Build ADF comment body for "Send to linked tickets": Linked ticket [host] SLA is now [status]. The date of expiration: [date]. @mentions Please be advised.
+ */
+function buildSendToLinkedSlaCommentBody(hostIssueKey, slaStatus, expirationDateStr, mentions) {
+  const statusText = sendToLinkedStatusLabel(slaStatus);
+  const content = [
+    { type: 'text', text: 'Linked ticket ', marks: [] },
+    { type: 'text', text: hostIssueKey, marks: [{ type: 'strong' }] },
+    { type: 'text', text: ' SLA is now ', marks: [] },
+    { type: 'text', text: statusText, marks: [{ type: 'strong' }] },
+    { type: 'text', text: '. The date of expiration: ', marks: [] },
+    { type: 'text', text: expirationDateStr, marks: [] },
+    { type: 'text', text: ' ', marks: [] },
+  ];
+  if (Array.isArray(mentions) && mentions.length > 0) {
+    for (const m of mentions) {
+      if (m && m.accountId) {
+        content.push({ type: 'mention', attrs: { id: m.accountId, text: `@${m.displayName || m.name || 'user'}` } });
+        content.push({ type: 'text', text: ' ', marks: [] });
+      }
+    }
+  }
+  content.push({ type: 'text', text: 'Please be advised.', marks: [] });
+  return {
+    body: {
+      version: 1,
+      type: 'doc',
+      content: [{ type: 'paragraph', content }],
+    },
+  };
+}
+
+/**
+ * Build plain text for Slack (same format as comment): Linked ticket [host] SLA is now [status]. The date of expiration: [date]. @names Please be advised.
+ */
+function buildSendToLinkedSlackText(hostIssueKey, slaStatus, expirationDateStr, mentions) {
+  const statusText = sendToLinkedStatusLabel(slaStatus);
+  const names = Array.isArray(mentions) ? mentions.map((m) => m?.displayName || m?.name || 'user').filter(Boolean) : [];
+  const mentionStr = names.length > 0 ? names.map((n) => `@${n}`).join(' ') + ' ' : '';
+  return `Linked ticket ${hostIssueKey} SLA is now ${statusText}. The date of expiration: ${expirationDateStr}. ${mentionStr}Please be advised.`;
+}
+
+/**
+ * Get Jira site base URL (e.g. https://yoursite.atlassian.net) for building browse links. Returns null on failure.
+ */
+async function getJiraBaseUrl(jira) {
+  try {
+    const res = await jira(route`/rest/api/3/serverInfo`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const base = data?.baseUrl;
+    return typeof base === 'string' && base.trim() ? base.replace(/\/$/, '') : null;
+  } catch (e) {
+    console.error('[SLA Link Inspector] getJiraBaseUrl error', e?.message);
+    return null;
+  }
+}
+
+/**
+ * Build "Posted to: <url|KEY>, ..." for Slack mrkdwn so ticket keys are clickable links.
+ */
+function buildSlackPostedToLinks(baseUrl, issueKeys) {
+  if (!Array.isArray(issueKeys) || issueKeys.length === 0) return '';
+  if (!baseUrl) return ` (Posted to: ${issueKeys.join(', ')}.)`;
+  const links = issueKeys.map((key) => `<${baseUrl}/browse/${encodeURIComponent(key)}|${key}>`);
+  return ` (Posted to: ${links.join(', ')}.)`;
+}
+
+/**
+ * Build ADF body for a comment on a linked ticket when we could not read the current issue's SLA.
+ * Notifies the linked ticket that it is linked to currentIssueKey and @mentions assignee.
+ */
+function buildLinkedIssueNoticeCommentBody(currentIssueKey, mentions) {
+  const content = [
+    { type: 'text', text: 'This ticket is linked to ', marks: [] },
+    { type: 'text', text: currentIssueKey, marks: [{ type: 'strong' }] },
+    { type: 'text', text: '. View that issue in Jira for SLA status and details. ', marks: [] },
+  ];
+  if (Array.isArray(mentions) && mentions.length > 0) {
+    for (const m of mentions) {
+      if (m && m.accountId) {
+        content.push({ type: 'mention', attrs: { id: m.accountId, text: `@${m.displayName || m.name || 'user'}` } });
+        content.push({ type: 'text', text: ' ', marks: [] });
+      }
+    }
+  }
+  return {
+    body: {
+      version: 1,
+      type: 'doc',
+      content: [{ type: 'paragraph', content }],
+    },
+  };
+}
 
 /**
  * Build ADF body for a Jira comment when a linked ticket's SLA goes at-risk or breached.
@@ -509,16 +720,20 @@ function buildPlainTextMessage(template, vars, mentions) {
 }
 
 /**
- * Send Slack notification via incoming webhook. Payload: { text } or { text, blocks }.
+ * Send Slack notification via incoming webhook. Payload: { text } or { attachments } when mrkdwn.
+ * @param {object} [opts] - { mrkdwn: true } to render message as mrkdwn (e.g. clickable <url|text> links).
  */
-async function sendSlackNotification(webhookUrl, message) {
+async function sendSlackNotification(webhookUrl, message, opts = {}) {
   const url = (webhookUrl || '').trim();
   if (!url || !url.startsWith('https://hooks.slack.com/')) return;
   try {
+    const body = opts.mrkdwn
+      ? { attachments: [{ text: message, mrkdwn_in: ['text'] }] }
+      : { text: message };
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: message }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       console.error('[SLA Link Inspector] Slack webhook failed', res.status, await res.text());
@@ -531,19 +746,23 @@ async function sendSlackNotification(webhookUrl, message) {
 /**
  * Send Slack notification via Web API (chat.postMessage). Use when webhook URL is not set.
  * Requires bot token (xoxb-...) and channel ID (e.g. C01234ABCD).
+ * @param {object} [opts] - { mrkdwn: true } to render message as mrkdwn (e.g. clickable <url|text> links).
  */
-async function sendSlackViaWebApi(botToken, channelId, message) {
+async function sendSlackViaWebApi(botToken, channelId, message, opts = {}) {
   const token = (botToken || '').trim() || (typeof process !== 'undefined' && process.env && process.env.SLACK_BOT_TOKEN);
   const channel = (channelId || '').trim();
   if (!token || !channel) return;
   try {
+    const payload = opts.mrkdwn
+      ? { channel, text: message, blocks: [{ type: 'section', text: { type: 'mrkdwn', text: message } }] }
+      : { channel, text: message };
     const res = await fetch('https://slack.com/api/chat.postMessage', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ channel, text: message }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json().catch(() => ({}));
     if (!data.ok) {
@@ -671,7 +890,7 @@ resolver.define('getSlaDatesInfo', async ({ payload }) => {
   if (!linkedIssueKey) return { ok: false, error: 'Missing linkedIssueKey.' };
   try {
     const jira = api.asApp().requestJira.bind(api.asApp());
-    const slaField = await findSlaFieldId();
+    const slaField = await getSlaFieldForRequest();
     const fieldsParam = ['summary', 'status', 'priority'];
     if (slaField?.id) fieldsParam.push(slaField.id);
     const fieldsQuery = fieldsParam.join(',');
@@ -739,7 +958,7 @@ resolver.define('testFireSlaComment', async ({ payload }) => {
   if (!parentIssueKey) return { ok: false, error: 'Missing parentIssueKey.' };
   try {
     const jira = api.asApp().requestJira.bind(api.asApp());
-    const slaField = await findSlaFieldId();
+    const slaField = await getSlaFieldForRequest();
     const fieldsParam = ['summary', 'status', 'assignee', 'priority'];
     if (slaField?.id) fieldsParam.push(slaField.id);
     const fieldsQuery = fieldsParam.join(',');
@@ -804,7 +1023,7 @@ resolver.define('warnAssigneeSlaDates', async ({ payload }) => {
   if (!parentIssueKey) return { ok: false, error: 'Missing parentIssueKey.' };
   try {
     const jira = api.asApp().requestJira.bind(api.asApp());
-    const slaField = await findSlaFieldId();
+    const slaField = await getSlaFieldForRequest();
     const fieldsParam = ['summary', 'status', 'assignee', 'priority'];
     if (slaField?.id) fieldsParam.push(slaField.id);
     const fieldsQuery = fieldsParam.join(',');
@@ -848,7 +1067,30 @@ resolver.define('warnAssigneeSlaDates', async ({ payload }) => {
     }
 
     if (breachedDate == null && atRiskDate == null && !alreadyAtRisk && !alreadyBreached) {
-      return { ok: false, error: 'No SLA time data for this linked issue. Add an SLA with remaining time to use this action.' };
+      // Linked issue has no SLA time data; post a short note and point to the other action
+      const noDataBody = {
+        body: {
+          version: 1,
+          type: 'doc',
+          content: [{
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'Linked ticket ', marks: [] },
+              { type: 'text', text: linkedIssueKey, marks: [{ type: 'strong' }] },
+              { type: 'text', text: ' has no SLA remaining time data. Use the "Send SLA to linked tickets" button above to post this issue\'s SLA to linked tickets.', marks: [] },
+            ],
+          }],
+        },
+      };
+      const noDataRes = await jira(route`/rest/api/3/issue/${parentIssueKey}/comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(noDataBody),
+      });
+      if (!noDataRes.ok) {
+        return { ok: false, error: `Failed to post comment: ${noDataRes.status}` };
+      }
+      return { ok: true, message: `Comment posted: linked ticket ${linkedIssueKey} has no SLA time data. Use "Send SLA to linked tickets" to post this issue's SLA.` };
     }
 
     const body = buildWarnAssigneeCommentBody({
@@ -876,6 +1118,125 @@ resolver.define('warnAssigneeSlaDates', async ({ payload }) => {
   }
 });
 
+/**
+ * Test: post the current issue's SLA info as a comment on each linked ticket and @mention the linked ticket's assignee.
+ * Use this to verify the app can post comments to linked issues (e.g. cross-project). Payload: { issueKey }.
+ * Returns { ok, posted: string[], failed: { key, error }[] }.
+ * Payload: { issueKey, targetKeys?: string[] }. If targetKeys is provided and non-empty, only those linked keys are used.
+ */
+resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
+  const licenseStatus = getLicenseStatus();
+  if (licenseStatus.isProduction && !licenseStatus.licensed) {
+    return { ok: false, error: licenseStatus.reason || 'A valid license is required.', posted: [], failed: [] };
+  }
+  const currentIssueKey = payload?.issueKey != null ? String(payload.issueKey).trim() : '';
+  if (!currentIssueKey) return { ok: false, error: 'Missing issueKey.', posted: [], failed: [] };
+  const targetKeysFromPayload = Array.isArray(payload?.targetKeys) ? payload.targetKeys : (payload?.targetKeys != null ? [payload.targetKeys] : null);
+  try {
+    const jira = api.asApp().requestJira.bind(api.asApp());
+    const slaField = await getSlaFieldForRequest();
+    // Fetch issuelinks with same request as panel (fields=issuelinks) so we see the same linked issues
+    const linksRes = await jira(
+      route`/rest/api/3/issue/${currentIssueKey}?fields=issuelinks`
+    );
+    if (!linksRes.ok) {
+      return { ok: false, error: `Failed to load current issue: ${linksRes.status}`, posted: [], failed: [] };
+    }
+    const linksData = await linksRes.json();
+    const links = linksData.fields?.issuelinks || [];
+    const linkedKeysSet = new Set();
+    for (const link of links) {
+      const linked = link.outwardIssue || link.inwardIssue;
+      const key = linked?.key;
+      if (key != null) linkedKeysSet.add(String(key).trim());
+    }
+    if (linkedKeysSet.size === 0) {
+      return { ok: true, message: 'No linked issues.', posted: [], failed: [] };
+    }
+    // Restrict to targetKeys if provided (only post to keys that are actually linked)
+    let keysToPost = [...linkedKeysSet];
+    if (targetKeysFromPayload != null && targetKeysFromPayload.length > 0) {
+      const wanted = new Set(targetKeysFromPayload.map((k) => String(k).trim()).filter(Boolean));
+      keysToPost = keysToPost.filter((k) => wanted.has(k));
+      if (keysToPost.length === 0) {
+        return { ok: false, error: 'None of the specified tickets are linked to this issue.', posted: [], failed: [] };
+      }
+    }
+    // Fetch current issue: explicit SLA field when we have one, else fields=* so getSlaData can use duedate/value-shape fallbacks.
+    const currentFieldsParam = ['summary', 'status', 'assignee', 'priority'];
+    if (slaField?.id) currentFieldsParam.push(slaField.id);
+    const currentRes = await jira(
+      route`/rest/api/3/issue/${currentIssueKey}?fields=${slaField?.id ? currentFieldsParam.join(',') : '*'}`
+    );
+    if (!currentRes.ok) {
+      return { ok: false, error: `Failed to load current issue SLA: ${currentRes.status}`, posted: [], failed: [] };
+    }
+    const currentIssue = await currentRes.json();
+    let currentSla = getSlaData(currentIssue.fields, slaField);
+    const hasSlaFromFields = currentSla.status !== 'none' || (currentSla.label != null && !String(currentSla.label).toLowerCase().includes('no sla'));
+    if (!hasSlaFromFields) {
+      const jsmSla = await getSlaDataFromJsm(jira, currentIssueKey);
+      if (jsmSla) currentSla = jsmSla;
+    }
+    const hasSlaData = currentSla.status !== 'none' || (currentSla.label != null && !String(currentSla.label).toLowerCase().includes('no sla'));
+    if (!hasSlaData) {
+      return { ok: false, error: 'This issue has no SLA data. Add an SLA to this issue to send it to linked tickets.', posted: [], failed: [] };
+    }
+    const expirationDateStr = formatExpirationDate(currentSla.hoursRemaining);
+    const posted = [];
+    const failed = [];
+    for (const linkedKey of keysToPost) {
+      try {
+        const linkedRes = await jira(route`/rest/api/3/issue/${linkedKey}?fields=assignee,reporter`);
+        if (!linkedRes.ok) {
+          failed.push({ key: linkedKey, error: `Failed to load: ${linkedRes.status}` });
+          continue;
+        }
+        const linkedIssue = await linkedRes.json();
+        const assignee = linkedIssue.fields?.assignee;
+        const reporter = linkedIssue.fields?.reporter;
+        const mentions = [];
+        if (assignee?.accountId) mentions.push({ accountId: assignee.accountId, displayName: assignee.displayName || assignee.name });
+        if (reporter?.accountId && reporter.accountId !== assignee?.accountId) mentions.push({ accountId: reporter.accountId, displayName: reporter.displayName || reporter.name });
+        const body = buildSendToLinkedSlaCommentBody(currentIssueKey, currentSla.status, expirationDateStr, mentions);
+        const commentRes = await jira(route`/rest/api/3/issue/${linkedKey}/comment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!commentRes.ok) {
+          const errText = await commentRes.text();
+          failed.push({ key: linkedKey, error: `${commentRes.status}: ${(errText || '').slice(0, 80)}` });
+          continue;
+        }
+        posted.push(linkedKey);
+      } catch (e) {
+        failed.push({ key: linkedKey, error: e.message || 'Unknown error' });
+      }
+    }
+    const ok = failed.length === 0;
+    const message = posted.length > 0
+      ? (failed.length > 0 ? `Posted to ${posted.join(', ')}. Failed: ${failed.map((f) => `${f.key} (${f.error})`).join('; ')}` : `Posted to ${posted.join(', ')}.`)
+      : (failed.length > 0 ? `No comments posted. Failed: ${failed.map((f) => `${f.key} (${f.error})`).join('; ')}` : 'No linked issues.');
+    if (posted.length > 0) {
+      const config = await getAdminConfig();
+      const slackParams = getSlackSendParams(config);
+      if (config.notificationSlack && slackParams) {
+        const baseUrl = await getJiraBaseUrl(jira);
+        const slackText = buildSendToLinkedSlackText(currentIssueKey, currentSla.status, expirationDateStr, [])
+          + buildSlackPostedToLinks(baseUrl, posted);
+        const mrkdwnOpts = { mrkdwn: true };
+        if (slackParams.method === 'webhook') await sendSlackNotification(slackParams.webhookUrl, slackText, mrkdwnOpts);
+        else await sendSlackViaWebApi(slackParams.token, slackParams.channelId, slackText, mrkdwnOpts);
+      }
+    }
+    return { ok, message, posted, failed };
+  } catch (e) {
+    console.error('[SLA Link Inspector] notifyLinkedTicketsOfCurrentSla error', e.message);
+    return { ok: false, error: e.message || 'Unknown error', posted: [], failed: [] };
+  }
+});
+
 resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
   const licenseStatus = getLicenseStatus();
   const issueKey =
@@ -895,7 +1256,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
 
   try {
     const jira = api.asApp().requestJira.bind(api.asApp());
-    const slaField = await findSlaFieldId();
+    const slaField = await getSlaFieldForRequest();
     const slaFieldId = slaField?.id ?? null;
     if (slaField) {
       console.log('[SLA Link Inspector] Resolver: detected SLA field', slaField.name, '(', slaField.id, ')');

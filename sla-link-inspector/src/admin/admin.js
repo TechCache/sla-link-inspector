@@ -1,6 +1,7 @@
 import { invoke } from '@forge/bridge';
 
 const CONFIG_KEYS = [
+  'slaFieldId',
   'triggerAtRisk',
   'triggerBreached',
   'trigger30MinRemaining',

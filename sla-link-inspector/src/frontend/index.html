@@ -2,14 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>SLA Link Inspector</title>
+  <title>SLA relay</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="app">
     <p class="version-banner" id="version-banner"></p>
     <div id="license-banner" class="license-banner" style="display: none;" role="alert"></div>
-    <h1>SLA status for linked issues you can access</h1>
+    <h1>SLA relay</h1>
+    <p class="panel-copy">Notify linked tickets of SLA status and expiry.</p>
 
     <div id="loading" class="state-message">
       Loading linked issues…
@@ -21,13 +22,10 @@
     </div>
 
     <div id="sla-summary" class="sla-summary" style="display: none;"></div>
+    <div id="sla-send-section" class="sla-send-section" style="display: none;"></div>
 
     <div id="panel-feedback" class="panel-feedback panel-feedback-hidden" role="status" aria-live="polite"></div>
-
-    <table id="sla-table" style="display: none;">
-      <!-- Headers and rows are built by main.js -->
-    </table>
   </div>
-  <script src="build/main.js?v=1773353231903"></script>
+  <script src="build/main.js?v=1773359592310"></script>
 </body>
 </html>

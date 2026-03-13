@@ -7,8 +7,8 @@ console.log('[SLA Link Inspector] bundle loaded, v' + BUNDLE_VERSION);
 const LOADING = document.getElementById('loading');
 const ERROR_EL = document.getElementById('error');
 const EMPTY_EL = document.getElementById('empty');
-const TABLE_EL = document.getElementById('sla-table');
 const SUMMARY_EL = document.getElementById('sla-summary');
+const SEND_SECTION_EL = document.getElementById('sla-send-section');
 const PANEL_FEEDBACK_EL = document.getElementById('panel-feedback');
 const LICENSE_BANNER_EL = document.getElementById('license-banner');
 
@@ -35,8 +35,8 @@ function showState(which) {
   LOADING.style.display = which === 'loading' ? 'block' : 'none';
   ERROR_EL.style.display = which === 'error' ? 'block' : 'none';
   EMPTY_EL.style.display = which === 'empty' ? 'block' : 'none';
-  TABLE_EL.style.display = which === 'table' ? 'table' : 'none';
-  SUMMARY_EL.style.display = which === 'table' ? 'block' : 'none';
+  SUMMARY_EL.style.display = which === 'content' ? 'block' : 'none';
+  if (SEND_SECTION_EL) SEND_SECTION_EL.style.display = which === 'content' ? 'block' : 'none';
 }
 
 function setError(message) {
@@ -44,127 +44,84 @@ function setError(message) {
   showState('error');
 }
 
-function sortLinkedIssues(linkedIssues) {
-  const order = { breached: 0, at_risk: 1, within: 2, other: 3, none: 4 };
-  return [...linkedIssues].sort((a, b) => {
-    const aOrder = order[a.slaStatus] ?? 5;
-    const bOrder = order[b.slaStatus] ?? 5;
-    return aOrder - bOrder;
-  });
-}
+function renderSendPanel(linkedIssues, parentIssueKey, licensed = true) {
+  const n = linkedIssues.length;
+  SUMMARY_EL.textContent = n === 1 ? '1 linked issue.' : `${n} linked issues.`;
 
-function statusClass(slaStatus) {
-  if (!slaStatus) return 'status-none';
-  switch (slaStatus) {
-    case 'breached': return 'status-breached';
-    case 'at_risk': return 'status-at-risk';
-    case 'within': return 'status-within';
-    default: return 'status-other';
-  }
-}
-
-function formatHoursLeft(hours) {
-  // Mirrors resolver's formatHours for display (hours assumed positive; "left"/"overdue" added by caller).
-  if (hours < 1) return Math.round(hours * 60) + 'm';
-  if (hours < 24) return Math.round(hours) + 'h';
-  return Math.round(hours / 24) + 'd';
-}
-
-function renderSLATable(linkedIssues, parentIssueKey, licensed = true) {
-  const sorted = sortLinkedIssues(linkedIssues);
-
-  const counts = { breached: 0, at_risk: 0, within: 0, none: 0, other: 0 };
-  linkedIssues.forEach((t) => {
-    const s = t.slaStatus || 'other';
-    if (counts[s] !== undefined) counts[s]++;
-    else counts.other++;
-  });
-  SUMMARY_EL.textContent = `Breached: ${counts.breached}  ·  At risk: ${counts.at_risk}  ·  Within SLA: ${counts.within}  ·  No SLA: ${counts.none}${counts.other ? '  ·  Other: ' + counts.other : ''}`;
-
-  // Build table entirely in JS so headers are always correct (no reliance on deployed HTML)
-  if (!TABLE_EL) {
-    console.warn('[SLA Link Inspector] #sla-table not found');
-    showState('table');
+  if (!SEND_SECTION_EL) {
+    showState('content');
     return;
   }
-  const thead = document.createElement('thead');
-  thead.innerHTML = '<tr><th>Ticket</th><th>Priority</th><th>Status</th><th>SLA status</th><th>Actions</th></tr>';
-  const tbody = document.createElement('tbody');
-  TABLE_EL.innerHTML = '';
-  TABLE_EL.appendChild(thead);
-  TABLE_EL.appendChild(tbody);
+  SEND_SECTION_EL.innerHTML = '';
 
-  sorted.forEach((ticket) => {
-    const row = document.createElement('tr');
+  const optionsWrap = document.createElement('div');
+  optionsWrap.className = 'sla-send-options';
 
-    const ticketCell = document.createElement('td');
-    const link = document.createElement('a');
-    link.href = `/browse/${encodeURIComponent(ticket.key)}`;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.textContent = ticket.key;
-    link.className = 'issue-link';
-    ticketCell.appendChild(link);
-    row.appendChild(ticketCell);
+  const allWrap = document.createElement('label');
+  allWrap.className = 'sla-radio-wrap';
+  const allRadio = document.createElement('input');
+  allRadio.type = 'radio';
+  allRadio.name = 'sla-send-target';
+  allRadio.value = 'all';
+  allRadio.checked = true;
+  allWrap.appendChild(allRadio);
+  allWrap.appendChild(document.createTextNode(' All linked tickets'));
+  optionsWrap.appendChild(allWrap);
 
-    const priorityCell = document.createElement('td');
-    priorityCell.textContent = ticket.priority ?? '—';
-    row.appendChild(priorityCell);
+  const specificWrap = document.createElement('label');
+  specificWrap.className = 'sla-radio-wrap';
+  const specificRadio = document.createElement('input');
+  specificRadio.type = 'radio';
+  specificRadio.name = 'sla-send-target';
+  specificRadio.value = 'specific';
+  const ticketInput = document.createElement('input');
+  ticketInput.type = 'text';
+  ticketInput.className = 'sla-ticket-input';
+  ticketInput.placeholder = 'e.g. OCV2-4, OCV2-5';
+  ticketInput.setAttribute('aria-label', 'Ticket keys to send to (comma-separated)');
+  specificWrap.appendChild(specificRadio);
+  specificWrap.appendChild(document.createTextNode(' Only these: '));
+  specificWrap.appendChild(ticketInput);
+  optionsWrap.appendChild(specificWrap);
 
-    const statusCell = document.createElement('td');
-    statusCell.textContent = ticket.issueStatus ?? '—';
-    row.appendChild(statusCell);
+  SEND_SECTION_EL.appendChild(optionsWrap);
 
-    const slaCell = document.createElement('td');
-    const label = document.createElement('span');
-    label.className = 'status-label ' + statusClass(ticket.slaStatus);
-    if (ticket.hoursRemaining != null) {
-      if (ticket.hoursRemaining > 0) {
-        label.textContent = formatHoursLeft(ticket.hoursRemaining) + ' left';
+  const btnWrap = document.createElement('div');
+  btnWrap.className = 'sla-send-btn-wrap';
+  const sendToLinkedBtn = document.createElement('button');
+  sendToLinkedBtn.type = 'button';
+  sendToLinkedBtn.className = 'send-sla-to-linked-btn';
+  sendToLinkedBtn.textContent = 'Send SLA to linked tickets';
+  sendToLinkedBtn.title = licensed ? 'Post this issue\'s SLA as a comment on the selected linked ticket(s) and @mention their assignee. Only runs when this issue has SLA data.' : 'A valid license is required.';
+  sendToLinkedBtn.disabled = !licensed;
+  sendToLinkedBtn.addEventListener('click', async () => {
+    if (!licensed) return;
+    const useSpecific = specificRadio.checked && ticketInput.value.trim() !== '';
+    const targetKeys = useSpecific
+      ? ticketInput.value.split(/[\s,]+/).map((k) => k.trim()).filter(Boolean)
+      : null;
+    sendToLinkedBtn.disabled = true;
+    sendToLinkedBtn.textContent = '…';
+    try {
+      const payload = { issueKey: parentIssueKey };
+      if (targetKeys != null && targetKeys.length > 0) payload.targetKeys = targetKeys;
+      const result = await invoke('notifyLinkedTicketsOfCurrentSla', payload);
+      if (result?.error && (result?.posted?.length ?? 0) === 0) {
+        showPanelError(result.error || 'Failed.');
       } else {
-        label.textContent = formatHoursLeft(-ticket.hoursRemaining) + ' overdue';
+        showPanelSuccess(result?.message || (result?.posted?.length ? `Posted to ${result.posted.join(', ')}.` : 'Done.'));
       }
-    } else {
-      label.textContent = ticket.sla ?? 'No SLA';
+    } catch (e) {
+      showPanelError('Error: ' + (e.message || String(e)));
+    } finally {
+      sendToLinkedBtn.disabled = false;
+      sendToLinkedBtn.textContent = 'Send SLA to linked tickets';
     }
-    slaCell.appendChild(label);
-    row.appendChild(slaCell);
-
-    const actionsCell = document.createElement('td');
-    const actionsDiv = document.createElement('div');
-    actionsDiv.className = 'action-buttons';
-    const slaInfoBtn = document.createElement('button');
-    slaInfoBtn.type = 'button';
-    slaInfoBtn.className = 'warn-assignee-btn';
-    slaInfoBtn.textContent = 'Show SLA Details';
-    slaInfoBtn.title = licensed ? 'Post a comment with when this ticket will be at risk and when it will breach' : 'A valid license is required. Please upgrade from the Marketplace.';
-    slaInfoBtn.disabled = !licensed;
-    slaInfoBtn.addEventListener('click', async () => {
-      if (!licensed) return;
-      slaInfoBtn.disabled = true;
-      slaInfoBtn.textContent = '…';
-      try {
-        const result = await invoke('warnAssigneeSlaDates', { parentIssueKey, linkedIssueKey: ticket.key });
-        if (result?.ok) {
-          showPanelSuccess(result.message || 'SLA comment posted.');
-        } else {
-          showPanelError(result?.error || 'Unable to post comment.');
-        }
-      } catch (e) {
-        showPanelError('Error: ' + (e.message || String(e)));
-      } finally {
-        slaInfoBtn.disabled = false;
-        slaInfoBtn.textContent = 'Show SLA Details';
-      }
-    });
-    actionsDiv.appendChild(slaInfoBtn);
-    actionsCell.appendChild(actionsDiv);
-    row.appendChild(actionsCell);
-
-    tbody.appendChild(row);
   });
+  btnWrap.appendChild(sendToLinkedBtn);
+  SEND_SECTION_EL.appendChild(btnWrap);
 
-  showState('table');
+  showState('content');
 }
 
 function setBundleVersionInBanner() {
@@ -192,7 +149,7 @@ async function run() {
 
     if (LICENSE_BANNER_EL) {
       if (!licensed) {
-        LICENSE_BANNER_EL.textContent = result.licenseStatus?.reason || 'A valid license is required. Please upgrade from the Marketplace to use SLA Link Inspector.';
+        LICENSE_BANNER_EL.textContent = result.licenseStatus?.reason || 'A valid license is required. Please upgrade from the Marketplace to use Linked SLA Alerts.';
         LICENSE_BANNER_EL.style.display = 'block';
       } else {
         LICENSE_BANNER_EL.style.display = 'none';
@@ -218,7 +175,7 @@ async function run() {
       return;
     }
 
-    renderSLATable(linkedIssues, result.issueKey ?? issueKey, licensed);
+    renderSendPanel(linkedIssues, result.issueKey ?? issueKey, licensed);
   } catch (err) {
     console.error('[SLA Link Inspector] Frontend error:', err.message || err);
     setError(err.message || 'Failed to load linked issues.');

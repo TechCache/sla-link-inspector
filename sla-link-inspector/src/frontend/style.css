@@ -29,6 +29,12 @@ h1 {
   margin: 0 0 2px 0;
 }
 
+.panel-copy {
+  color: #6b778c;
+  margin: 0 0 12px 0;
+  font-size: 12px;
+}
+
 .subtitle {
   color: #6b778c;
   margin: 0 0 10px 0;
@@ -177,6 +183,67 @@ h1 {
 }
 
 .warn-assignee-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sla-send-section {
+  margin: 10px 0 14px 0;
+}
+
+.sla-send-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.sla-radio-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.sla-radio-wrap input[type="radio"] {
+  margin: 0;
+}
+
+.sla-ticket-input {
+  margin-left: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  min-width: 160px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+}
+
+.sla-ticket-input:focus {
+  outline: none;
+  border-color: #0052cc;
+  box-shadow: 0 0 0 1px #0052cc;
+}
+
+.sla-send-btn-wrap {
+  margin-top: 4px;
+}
+
+.send-sla-to-linked-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  background: #deebff;
+  color: #0052cc;
+  border: 1px solid #0052cc;
+  border-radius: 3px;
+}
+
+.send-sla-to-linked-btn:hover:not(:disabled) {
+  background: #b3d4ff;
+}
+
+.send-sla-to-linked-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

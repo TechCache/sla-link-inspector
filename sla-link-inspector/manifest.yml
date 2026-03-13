@@ -19,11 +19,13 @@ permissions:
     - read:jira-user
     - write:jira-work
     - storage:app
+    # Required to read SLA from Jira Service Management (e.g. "Time to resolution") when not in issue fields
+    - read:request.sla:jira-service-management
 
 modules:
   jira:issuePanel:
     - key: sla-link-inspector-panel
-      title: SLA Link Inspector
+      title: SLA relay
       icon: https://avatars.githubusercontent.com/u/214186582?v=4
       resource: sla-ui-v2
       resolver:
@@ -32,7 +34,7 @@ modules:
   jira:adminPage:
     - key: sla-link-inspector-configure
       resource: admin-ui
-      title: SLA Link Inspector
+      title: Linked SLA Alerts
       resolver:
         function: resolver
       useAsConfig: true

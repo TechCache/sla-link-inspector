@@ -1,4 +1,4 @@
-# SLA Link Inspector (Forge app)
+# Linked SLA Alerts (Forge app)
 
 For installation, features, and usage, see the [root README](../README.md).
 
