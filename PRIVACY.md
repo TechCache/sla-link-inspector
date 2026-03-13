@@ -3,11 +3,11 @@ Last updated: March 2026
 
 Tech Cache ("we", "our", or "us") develops tools designed to enhance workflows within Atlassian products such as Jira and Confluence.
 
-Tech Cache respects your privacy and is committed to protecting customer data. This Privacy Policy explains how the SLA Link Inspector app accesses and processes information.
+Tech Cache respects your privacy and is committed to protecting customer data. This Privacy Policy explains how the Linked SLA Alerts app accesses and processes information.
 
 ## Information We Access
 
-SLA Link Inspector accesses limited information from Jira issues in order to display SLA status for linked issues.
+Linked SLA Alerts accesses limited information from Jira issues in order to display SLA status for linked issues.
 
 This may include:
 
@@ -21,7 +21,7 @@ The app only accesses data that the Jira user already has permission to view.
 
 ## Personal Data
 
-SLA Link Inspector does **not collect, store, or process personal data outside of Atlassian systems.**
+Linked SLA Alerts does **not collect, store, or process personal data outside of Atlassian systems.**
 
 The app does not maintain external databases or store user information.
 
@@ -31,7 +31,7 @@ If you enable Slack or email webhooks in the app's configuration, notification m
 
 ## Data Storage
 
-SLA Link Inspector does not store customer data outside of Atlassian infrastructure.
+Linked SLA Alerts does not store customer data outside of Atlassian infrastructure.
 
 The app stores configuration (for example, notification and trigger settings) and temporary state (for example, to avoid duplicate notifications) within Atlassian Forge storage. Forge storage is managed and secured by Atlassian. No data is sent to or stored on Tech Cache servers.
 
@@ -51,7 +51,7 @@ The application runs entirely on Atlassian Forge infrastructure, which provides 
 
 ## Data Retention
 
-SLA Link Inspector does not retain customer issue data. Configuration settings remain stored within Atlassian Forge storage only while the application is installed.
+Linked SLA Alerts does not retain customer issue data. Configuration settings remain stored within Atlassian Forge storage only while the application is installed.
 
 ## Changes to this Policy
 
