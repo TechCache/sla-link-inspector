@@ -74,6 +74,12 @@ Please review this issue to avoid breach. {{assignee}}`,
   // Optional override when auto-detect doesn't find your SLA field (e.g. different name or language)
   slaFieldId: '',
   slaFieldName: '',
+  // Message template for "Send SLA to linked tickets" (comment on linked ticket + Slack). Empty = default format.
+  relayCommentTemplate: `Linked ticket {{issueKey}} SLA is now {{slaStatus}}.
+
+The date of expiration: {{expiryDate}}.
+
+{{assignee}}`,
 };
 
 async function getAdminConfig() {
@@ -353,7 +359,7 @@ resolver.define('setAdminConfig', async ({ payload }) => {
   const toStore = {};
   for (const [key, value] of Object.entries(payload)) {
     if (!allowed.has(key)) continue;
-    if (key === 'customTemplate' && value != null) toStore[key] = String(value);
+    if ((key === 'customTemplate' || key === 'relayCommentTemplate') && value != null) toStore[key] = String(value);
     else if (key === 'customUserGroup' && value != null) toStore[key] = String(value).trim();
     else if ((key === 'slackWebhookUrl' || key === 'emailWebhookUrl') && value != null) toStore[key] = String(value).trim();
     else if (key === 'slackChannelId' && value != null) toStore[key] = String(value).trim();
@@ -467,10 +473,60 @@ function formatExpirationDate(hoursRemaining) {
 }
 
 /**
- * Build ADF comment body for "Send to linked tickets": Linked ticket [host] SLA is now [status]. The date of expiration: [date]. @mentions Please be advised.
+ * Build ADF from relay template. Vars: {{issueKey}}, {{slaStatus}}, {{expiryDate}}, {{assignee}} (mention nodes).
  */
-function buildSendToLinkedSlaCommentBody(hostIssueKey, slaStatus, expirationDateStr, mentions) {
+function relayTemplateToAdf(template, hostIssueKey, statusText, expirationDateStr, mentions) {
+  const mentionList = Array.isArray(mentions) ? mentions.filter((m) => m && m.accountId) : [];
+  let text = String(template);
+  text = text.replace(/\{\{issueKey\}\}/g, hostIssueKey ?? '');
+  text = text.replace(/\{\{slaStatus\}\}/g, statusText ?? '');
+  text = text.replace(/\{\{expiryDate\}\}/g, expirationDateStr ?? '');
+  const paragraphs = text.split(/\n\n+/).filter((p) => p.trim() !== '');
+  const content = [];
+  for (const para of paragraphs) {
+    const parts = [];
+    const segs = para.split(/\{\{assignee\}\}/);
+    for (let i = 0; i < segs.length; i++) {
+      if (segs[i].length > 0) {
+        parts.push({ type: 'text', text: segs[i].replace(/\n/g, ' ') });
+      }
+      if (i < segs.length - 1 && mentionList.length > 0) {
+        for (const m of mentionList) {
+          parts.push({ type: 'mention', attrs: { id: m.accountId, text: `@${m.displayName || m.name || 'user'}` } });
+        }
+      }
+    }
+    if (parts.length > 0) {
+      content.push({ type: 'paragraph', content: parts });
+    }
+  }
+  if (content.length === 0) {
+    content.push({ type: 'paragraph', content: [{ type: 'text', text: 'Send SLA Alert to Linked Tickets.' }] });
+  }
+  return { body: { version: 1, type: 'doc', content } };
+}
+
+/**
+ * Build plain text from relay template for Slack. Same vars as relayTemplateToAdf; {{assignee}} → @Name list.
+ */
+function relayTemplateToPlainText(template, hostIssueKey, statusText, expirationDateStr, mentions) {
+  let text = String(template);
+  text = text.replace(/\{\{issueKey\}\}/g, hostIssueKey ?? '');
+  text = text.replace(/\{\{slaStatus\}\}/g, statusText ?? '');
+  text = text.replace(/\{\{expiryDate\}\}/g, expirationDateStr ?? '');
+  const names = Array.isArray(mentions) ? mentions.map((m) => m?.displayName || m?.name || 'user').filter(Boolean) : [];
+  text = text.replace(/\{\{assignee\}\}/g, names.length > 0 ? names.map((n) => `@${n}`).join(' ') : '');
+  return text.replace(/\n\n+/g, '\n').trim();
+}
+
+/**
+ * Build ADF comment body for "Send to linked tickets": uses relayCommentTemplate if set, else default.
+ */
+function buildSendToLinkedSlaCommentBody(hostIssueKey, slaStatus, expirationDateStr, mentions, relayTemplate) {
   const statusText = sendToLinkedStatusLabel(slaStatus);
+  if (relayTemplate && String(relayTemplate).trim() !== '') {
+    return relayTemplateToAdf(relayTemplate, hostIssueKey, statusText, expirationDateStr, mentions);
+  }
   const content = [
     { type: 'text', text: 'Linked ticket ', marks: [] },
     { type: 'text', text: hostIssueKey, marks: [{ type: 'strong' }] },
@@ -488,7 +544,7 @@ function buildSendToLinkedSlaCommentBody(hostIssueKey, slaStatus, expirationDate
       }
     }
   }
-  content.push({ type: 'text', text: 'Please be advised.', marks: [] });
+  content.push({ type: 'text', text: '.', marks: [] });
   return {
     body: {
       version: 1,
@@ -499,13 +555,16 @@ function buildSendToLinkedSlaCommentBody(hostIssueKey, slaStatus, expirationDate
 }
 
 /**
- * Build plain text for Slack (same format as comment): Linked ticket [host] SLA is now [status]. The date of expiration: [date]. @names Please be advised.
+ * Build plain text for Slack: uses relayCommentTemplate if set, else default.
  */
-function buildSendToLinkedSlackText(hostIssueKey, slaStatus, expirationDateStr, mentions) {
+function buildSendToLinkedSlackText(hostIssueKey, slaStatus, expirationDateStr, mentions, relayTemplate) {
   const statusText = sendToLinkedStatusLabel(slaStatus);
+  if (relayTemplate && String(relayTemplate).trim() !== '') {
+    return relayTemplateToPlainText(relayTemplate, hostIssueKey, statusText, expirationDateStr, mentions);
+  }
   const names = Array.isArray(mentions) ? mentions.map((m) => m?.displayName || m?.name || 'user').filter(Boolean) : [];
   const mentionStr = names.length > 0 ? names.map((n) => `@${n}`).join(' ') + ' ' : '';
-  return `Linked ticket ${hostIssueKey} SLA is now ${statusText}. The date of expiration: ${expirationDateStr}. ${mentionStr}Please be advised.`;
+  return `Linked ticket ${hostIssueKey} SLA is now ${statusText}. The date of expiration: ${expirationDateStr}. ${mentionStr}`.trim();
 }
 
 /**
@@ -1182,6 +1241,8 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
     if (!hasSlaData) {
       return { ok: false, error: 'This issue has no SLA data. Add an SLA to this issue to send it to linked tickets.', posted: [], failed: [] };
     }
+    const config = await getAdminConfig();
+    const relayTemplate = config.relayCommentTemplate || '';
     const expirationDateStr = formatExpirationDate(currentSla.hoursRemaining);
     const posted = [];
     const failed = [];
@@ -1198,7 +1259,7 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
         const mentions = [];
         if (assignee?.accountId) mentions.push({ accountId: assignee.accountId, displayName: assignee.displayName || assignee.name });
         if (reporter?.accountId && reporter.accountId !== assignee?.accountId) mentions.push({ accountId: reporter.accountId, displayName: reporter.displayName || reporter.name });
-        const body = buildSendToLinkedSlaCommentBody(currentIssueKey, currentSla.status, expirationDateStr, mentions);
+        const body = buildSendToLinkedSlaCommentBody(currentIssueKey, currentSla.status, expirationDateStr, mentions, relayTemplate);
         const commentRes = await jira(route`/rest/api/3/issue/${linkedKey}/comment`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -1219,11 +1280,10 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
       ? (failed.length > 0 ? `Posted to ${posted.join(', ')}. Failed: ${failed.map((f) => `${f.key} (${f.error})`).join('; ')}` : `Posted to ${posted.join(', ')}.`)
       : (failed.length > 0 ? `No comments posted. Failed: ${failed.map((f) => `${f.key} (${f.error})`).join('; ')}` : 'No linked issues.');
     if (posted.length > 0) {
-      const config = await getAdminConfig();
       const slackParams = getSlackSendParams(config);
       if (config.notificationSlack && slackParams) {
         const baseUrl = await getJiraBaseUrl(jira);
-        const slackText = buildSendToLinkedSlackText(currentIssueKey, currentSla.status, expirationDateStr, [])
+        const slackText = buildSendToLinkedSlackText(currentIssueKey, currentSla.status, expirationDateStr, [], relayTemplate)
           + buildSlackPostedToLinks(baseUrl, posted);
         const mrkdwnOpts = { mrkdwn: true };
         if (slackParams.method === 'webhook') await sendSlackNotification(slackParams.webhookUrl, slackText, mrkdwnOpts);

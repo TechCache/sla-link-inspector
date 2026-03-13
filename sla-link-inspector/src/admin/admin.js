@@ -21,6 +21,7 @@ const CONFIG_KEYS = [
   'slackChannelId',
   'slackBotToken',
   'customTemplate',
+  'relayCommentTemplate',
 ];
 
 const errorEl = document.getElementById('error');

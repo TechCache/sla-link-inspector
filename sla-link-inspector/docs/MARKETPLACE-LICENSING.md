@@ -1,4 +1,4 @@
-# Marketplace licensing (SLA Link Inspector)
+# Marketplace licensing (Linked SLA Alerts)
 
 This doc describes how licensing is implemented for the paid Marketplace listing and where to change behavior.
 
@@ -32,7 +32,7 @@ So:
    - **Optional enforcement:** In `setAdminConfig`, `warnAssigneeSlaDates`, `testSlackWebhook`, you can check the same helper and return `{ ok: false, error: 'A valid license is required. Please upgrade from the Marketplace.' }` when `licensed === false` in production. Right now the code only *reports* license status; it does not block.
 
 2. **Frontend (issue panel)**  
-   - After `invoke('getLinkedIssueSlas', ...)`, read `result.licenseStatus`. If `licensed === false`, show a short message (e.g. “Upgrade to a paid license to use SLA Link Inspector”) and optionally hide or disable the table / “Show SLA Details”.
+   - After `invoke('getLinkedIssueSlas', ...)`, read `result.licenseStatus`. If `licensed === false`, show a short message (e.g. “Upgrade to a paid license to use Linked SLA Alerts”) and optionally hide or disable the table / “Show SLA Details”.
 
 3. **Admin UI**  
    - `getAdminConfig` now returns `licenseStatus: { licensed, reason?, isProduction? }`. In `admin.js` `load()`, after `payloadToForm(config)`, if `config.licenseStatus?.licensed === false`, show a banner (e.g. above the form) with `config.licenseStatus.reason` and optionally disable “Save settings” and “Test Slack”.
@@ -41,7 +41,7 @@ So:
 
 - **Support URL / vendor profile:** Set in the **Atlassian Developer Console** (developer.atlassian.com) under the **vendor** (briefcase “Tech Cache”) space, not in the app manifest.
 - **Listing text, screenshots, pricing:** Set in **Atlassian Marketplace** (marketplace.atlassian.com) when you create or edit the listing and attach the app from the vendor space.
-- **App name / description in Jira:** The `title` in `manifest.yml` for `jira:issuePanel` and `jira:adminPage` controls what users see in the Jira UI (“SLA Link Inspector”). Marketplace listing name can be different but is usually the same.
+- **App name / description in Jira:** The `title` in `manifest.yml` for `jira:issuePanel` and `jira:adminPage` controls what users see in the Jira UI (“Linked SLA Alerts”). Marketplace listing name can be different but is usually the same.
 
 ## After app transfer
 

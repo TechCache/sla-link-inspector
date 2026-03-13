@@ -8,13 +8,9 @@
 <body>
   <div id="app">
     <h1>Linked SLA Alerts</h1>
-    <p class="subtitle">Configure when and how to notify about linked-issue SLA status. The SLA relay panel sends this issue's SLA to linked tickets and notifies assignees.</p>
+    <p class="subtitle">Configure when and how to notify about linked-issue SLA status. The Send SLA Alert to Linked Tickets panel sends this issue's SLA to linked tickets and notifies assignees.</p>
     <div id="license-banner" class="license-banner" style="display: none;" role="alert"></div>
 
-    <section class="config-section requirements-notice">
-      <h2>How the panel works</h2>
-      <p class="hint">The panel shows SLA only for linked issues in projects the <strong>viewing user</strong> can already see in Jira. We don’t bypass permissions: if a user has no access to a linked issue’s project, that row shows “Error loading.” To see SLAs for other queues or projects, grant users at least <strong>browse</strong> access to those projects.</p>
-    </section>
 
     <section class="config-section">
       <h2>SLA field (optional)</h2>
@@ -89,15 +85,35 @@
 
     <section class="config-section">
       <h2>Custom message template</h2>
-      <p class="hint">Customize the comment text. Use variables:</p>
+      <p class="hint">Used for <strong>alerts posted on the parent issue</strong> when a linked issue’s SLA goes at risk, breached, or 30 minutes remaining (Trigger conditions above). For the “Send SLA to linked tickets” comment, use the template below.</p>
+      <p class="hint">Variables:</p>
       <ul class="vars-list">
-        <li><code>{{issueKey}}</code> – linked issue key</li>
+        <li><code>{{issueKey}}</code> – the linked issue key (the one that went at risk/breached)</li>
         <li><code>{{slaName}}</code> – SLA field name</li>
         <li><code>{{remainingTime}}</code> – e.g. “9d left” or “2h overdue”</li>
         <li><code>{{status}}</code> – at risk / breached / 30 minutes remaining</li>
         <li><code>{{assignee}}</code> – @mention(s): assignee, reporter, watchers as configured for that trigger</li>
       </ul>
       <textarea id="customTemplate" class="template-input" rows="10" placeholder="Leave empty to use the default message."></textarea>
+    </section>
+
+    <section class="config-section">
+      <h2>Send SLA Alert to Linked Tickets message template</h2>
+      <p class="hint">Used for the comment posted on <strong>linked tickets</strong> when you click “Send SLA to linked tickets” in the Send SLA Alert to Linked Tickets panel, and for the same message sent to Slack. Leave empty for the default.</p>
+      <p class="hint">Variables:</p>
+      <ul class="vars-list">
+        <li><code>{{issueKey}}</code> – the current issue key (the one whose SLA you’re relaying)</li>
+        <li><code>{{slaStatus}}</code> – At-Risk / Breached / In SLA range</li>
+        <li><code>{{expiryDate}}</code> – formatted expiration date</li>
+        <li><code>{{assignee}}</code> – @mention(s) of the linked ticket’s assignee/reporter</li>
+      </ul>
+      <p class="hint small">Example:</p>
+      <pre class="template-example" aria-hidden="true">Linked ticket {{issueKey}} SLA is now {{slaStatus}}.
+
+The date of expiration: {{expiryDate}}.
+
+{{assignee}}</pre>
+      <textarea id="relayCommentTemplate" class="template-input" rows="6" placeholder="Leave empty to use the default message."></textarea>
     </section>
 
     <div class="actions">

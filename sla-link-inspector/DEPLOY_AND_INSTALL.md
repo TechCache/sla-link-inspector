@@ -11,7 +11,7 @@ app:
 ```
 
 - Go to https://developer.atlassian.com/console/myapps/
-- Click **each** "SLA Link Inspector" and check **App details** (or the URL). One will have ID ending in **aed3fc25-0933-4935-aeeb-4469a9a3c828**. That is **App A** (the one you're deploying).
+- Click **each** "Linked SLA Alerts" and check **App details** (or the URL). One will have ID ending in **aed3fc25-0933-4935-aeeb-4469a9a3c828**. That is **App A** (the one you're deploying).
 
 ## 2. Deploy from the correct folder
 
@@ -26,7 +26,7 @@ npm run deploy:dev
 ## 3. Install only App A on your Jira site
 
 - In Jira: **Settings (gear)** → **Apps** → **Manage apps** (or **Find new apps**).
-- Find **SLA Link Inspector**. **Uninstall** it (or both if you see two).
+- Find **Linked SLA Alerts**. **Uninstall** it (or both if you see two).
 - In Developer Console, open **App A** (the one with id `aed3fc25-...`).
 - Go to **Development** (or the environment you deploy to).
 - Copy the **Install app** / **Get install link** URL.
@@ -34,9 +34,7 @@ npm run deploy:dev
 
 ## 4. Open the panel
 
-- Open any issue and open the **SLA Link Inspector** panel.
-- You should see a banner like:  
-  `SLA Link Inspector • Ticket | Priority | Status | SLA • build-1710...`  
-  and columns: **Ticket | Priority | Status | SLA status**.
+- Open any issue and open the **Linked SLA Alerts** panel.
+- You should see the **Linked SLA Alerts** panel (Send SLA Alert to Linked Tickets) with version banner and "Send to" options for linked tickets.
 
 If the banner still doesn’t appear, the panel is still loading the other app. Uninstall again and install **only** via the install link from App A (step 3).

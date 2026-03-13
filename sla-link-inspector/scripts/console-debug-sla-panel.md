@@ -1,6 +1,6 @@
-# Console scripts to debug SLA Link Inspector panel
+# Console scripts to debug Linked SLA Alerts panel
 
-Run these in the browser **Developer Tools → Console** (F12 or Cmd+Option+J) while viewing a Jira issue with the SLA Link Inspector panel **open and visible**.
+Run these in the browser **Developer Tools → Console** (F12 or Cmd+Option+J) while viewing a Jira issue with the Linked SLA Alerts panel **open and visible**.
 
 ---
 
@@ -52,7 +52,7 @@ Paste this in the console and press Enter. It finds the panel iframe and reports
 **What to look for**
 - **URL** – Should point at a Forge/Atlassian host. Note the path (e.g. contains an app ID or resource key).
 - **Table columns** – If `sameOrigin` is true, you’ll see the actual header text (e.g. "Ticket | Priority | Status | SLA status" vs "Linked ticket | Project | Status | SLA status").
-- **Banner** – Should be "SLA Link Inspector • Ticket | Priority | Status | SLA" in the new version.
+- **Banner** – Should show "Version · vX.X.X" and the Send SLA Alert to Linked Tickets panel content.
 
 ---
 
@@ -60,7 +60,7 @@ Paste this in the console and press Enter. It finds the panel iframe and reports
 
 If Script 1 shows `sameOrigin: false`, you can still inspect the panel’s DOM:
 
-1. Right‑click inside the **SLA Link Inspector panel** → **Inspect** (or Inspect Element).
+1. Right‑click inside the **Linked SLA Alerts panel** → **Inspect** (or Inspect Element).
 2. In the **Elements** tab, click the topmost element (often `<html>` or the iframe’s document).
 3. Go to the **Console** tab. Use the dropdown that says "top" and switch to the iframe for the panel (e.g. "sla-link-inspector" or the URL that looks like the panel).
 4. Paste this and press Enter:
@@ -78,8 +78,8 @@ If Script 1 shows `sameOrigin: false`, you can still inspect the panel’s DOM:
 ```
 
 **What to look for**
-- **Banner** – New UI: "SLA Link Inspector • Ticket | Priority | Status | SLA". Old: missing or different.
-- **Column headers** – New: `Ticket | Priority | Status | SLA status`. Old: `Linked ticket | Project | Status | SLA status` (or similar).
+- **Banner** – Version banner and SLA relay heading (Linked SLA Alerts panel).
+- **Content** – Summary of linked tickets and "Send to" options (no table in current UI).
 - **Script src** – URL of the loaded JS; may include a version or hash.
 
 ---

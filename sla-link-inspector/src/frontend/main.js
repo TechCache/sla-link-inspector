@@ -2,7 +2,7 @@ import { invoke, view } from '@forge/bridge';
 
 // Injected at build time from package.json (see scripts/bundle-frontend.js)
 const BUNDLE_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
-console.log('[Linked SLA Alerts] SLA relay panel loaded, v' + BUNDLE_VERSION);
+console.log('[Linked SLA Alerts] Send SLA Alert to Linked Tickets panel loaded, v' + BUNDLE_VERSION);
 
 const LOADING = document.getElementById('loading');
 const ERROR_EL = document.getElementById('error');
