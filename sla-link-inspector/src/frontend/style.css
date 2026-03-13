@@ -191,6 +191,13 @@ h1 {
   margin: 10px 0 14px 0;
 }
 
+.sla-send-to-label {
+  margin: 0 0 6px 0;
+  font-size: 12px;
+  color: #42526e;
+  font-weight: 600;
+}
+
 .sla-send-options {
   display: flex;
   flex-direction: column;

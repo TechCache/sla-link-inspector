@@ -25,7 +25,7 @@ permissions:
 modules:
   jira:issuePanel:
     - key: sla-link-inspector-panel
-      title: SLA relay
+      title: Linked SLA Alerts
       icon: https://avatars.githubusercontent.com/u/214186582?v=4
       resource: sla-ui-v2
       resolver:

@@ -2,7 +2,7 @@ import { invoke, view } from '@forge/bridge';
 
 // Injected at build time from package.json (see scripts/bundle-frontend.js)
 const BUNDLE_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
-console.log('[SLA Link Inspector] bundle loaded, v' + BUNDLE_VERSION);
+console.log('[Linked SLA Alerts] SLA relay panel loaded, v' + BUNDLE_VERSION);
 
 const LOADING = document.getElementById('loading');
 const ERROR_EL = document.getElementById('error');
@@ -46,13 +46,18 @@ function setError(message) {
 
 function renderSendPanel(linkedIssues, parentIssueKey, licensed = true) {
   const n = linkedIssues.length;
-  SUMMARY_EL.textContent = n === 1 ? '1 linked issue.' : `${n} linked issues.`;
+  SUMMARY_EL.textContent = n === 1 ? '1 linked ticket.' : `${n} linked tickets.`;
 
   if (!SEND_SECTION_EL) {
     showState('content');
     return;
   }
   SEND_SECTION_EL.innerHTML = '';
+
+  const sendToLabel = document.createElement('p');
+  sendToLabel.className = 'sla-send-to-label';
+  sendToLabel.textContent = 'Send to:';
+  SEND_SECTION_EL.appendChild(sendToLabel);
 
   const optionsWrap = document.createElement('div');
   optionsWrap.className = 'sla-send-options';
@@ -138,7 +143,7 @@ async function run() {
     const context = await view.getContext();
     issueKey = context?.extension?.issue?.key ?? context?.extension?.issueKey ?? context?.platform?.issueKey ?? context?.platform?.issue?.key;
   } catch (e) {
-    console.error('[SLA Link Inspector] Frontend: getContext failed', e.message || e);
+    console.error('[Linked SLA Alerts] Frontend: getContext failed', e.message || e);
     setError('Could not get issue context.');
     return;
   }
@@ -157,27 +162,24 @@ async function run() {
     }
 
     if (result.error && (!result.linkedIssues || result.linkedIssues.length === 0)) {
-      console.error('[SLA Link Inspector] Frontend: resolver error', result.error);
+      console.error('[Linked SLA Alerts] Frontend: resolver error', result.error);
       setError(result.error || 'Failed to load linked issues.');
       return;
     }
 
     const linkedIssues = result.linkedIssues || [];
-    console.log('[SLA Link Inspector] Frontend: linked issues count', linkedIssues.length);
+    console.log('[Linked SLA Alerts] Frontend: linked issues count', linkedIssues.length);
 
     if (linkedIssues.length === 0) {
       const emptyEl = document.getElementById('empty');
-      const checkedKey = result.issueKey;
-      emptyEl.textContent = checkedKey
-        ? `No linked issues for ${checkedKey}, or none you have access to. The panel shows standard Jira issue links only—and only for issues in projects you can see.`
-        : 'No linked issues for this ticket, or none you have access to. The panel shows standard Jira issue links only—and only for issues in projects you can see.';
+      emptyEl.textContent = 'No linked issues. Add issue links to this ticket to relay SLA status and expiry to them.';
       showState('empty');
       return;
     }
 
     renderSendPanel(linkedIssues, result.issueKey ?? issueKey, licensed);
   } catch (err) {
-    console.error('[SLA Link Inspector] Frontend error:', err.message || err);
+    console.error('[Linked SLA Alerts] Frontend error:', err.message || err);
     setError(err.message || 'Failed to load linked issues.');
   }
 }
