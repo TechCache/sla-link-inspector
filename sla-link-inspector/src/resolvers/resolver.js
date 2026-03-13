@@ -62,6 +62,9 @@ const DEFAULT_ADMIN_CONFIG = {
   onlyNotifyIfOpen: true,
   atRiskAdditionalMentions: [],
   breachedAdditionalMentions: [],
+  // Notify users from parent issue fields (e.g. "Request Participants", "customfield_12345")
+  atRiskNotifyFromFields: [],
+  breachedNotifyFromFields: [],
   customTemplate: `⚠️ SLA Alert
 
 Issue: {{issueKey}}
@@ -340,7 +343,12 @@ function normalizeSlaStatus(raw) {
 
 resolver.define('getAdminConfig', async () => {
   const config = await getAdminConfig();
-  return { ...config, licenseStatus: getLicenseStatus() };
+  const licenseStatus = getLicenseStatus();
+  const out = { ...config, licenseStatus };
+  if (out.slackBotToken != null && String(out.slackBotToken).trim() !== '') {
+    out.slackBotToken = '•••••••• (saved)';
+  }
+  return out;
 });
 
 resolver.define('getLicenseStatus', async () => {
@@ -364,7 +372,7 @@ resolver.define('setAdminConfig', async ({ payload }) => {
     else if ((key === 'slackWebhookUrl' || key === 'emailWebhookUrl') && value != null) toStore[key] = String(value).trim();
     else if (key === 'slackChannelId' && value != null) toStore[key] = String(value).trim();
     else if (key === 'slackBotToken') {
-      if (value != null && String(value).trim() !== '') toStore[key] = String(value).trim();
+      if (Object.prototype.hasOwnProperty.call(payload, 'slackBotToken')) toStore[key] = (value != null ? String(value) : '').trim();
     }
     else if ((key === 'slaFieldId' || key === 'slaFieldName') && value != null) toStore[key] = String(value).trim();
     else if ((key === 'atRiskAdditionalMentions' || key === 'breachedAdditionalMentions') && Array.isArray(value)) {
@@ -378,6 +386,8 @@ resolver.define('setAdminConfig', async ({ payload }) => {
           return true;
         })
         .map((m) => ({ accountId: String(m.accountId), displayName: m.displayName != null ? String(m.displayName) : '' }));
+    } else if ((key === 'atRiskNotifyFromFields' || key === 'breachedNotifyFromFields') && Array.isArray(value)) {
+      toStore[key] = value.map((s) => String(s).trim()).filter(Boolean);
     } else if (typeof value === 'boolean') toStore[key] = value;
   }
   try {
@@ -460,7 +470,7 @@ resolver.define('searchJiraUsers', async ({ payload }) => {
 function sendToLinkedStatusLabel(slaStatus) {
   if (slaStatus === 'at_risk') return 'At-Risk';
   if (slaStatus === 'breached') return 'Breached';
-  return 'In SLA range';
+  return 'in SLA range';
 }
 
 /**
@@ -621,14 +631,14 @@ function buildLinkedIssueNoticeCommentBody(currentIssueKey, mentions) {
 }
 
 /**
- * Build ADF body for a Jira comment when a linked ticket's SLA goes at-risk or breached.
- * mentions = [{ accountId, displayName }, ...] in order (e.g. assignee, reporter, watchers).
+ * Build ADF body for a comment (posted on a linked ticket) about the parent ticket's SLA going at-risk or breached.
+ * issueKeyWithSla = parent issue key; mentions = linked ticket's people.
  */
-function buildSlaAlertCommentBody(linkedIssueKey, slaStatus, mentions, opts = {}) {
+function buildSlaAlertCommentBody(issueKeyWithSla, slaStatus, mentions, opts = {}) {
   const { slaName = '', remainingTime = '', customTemplate } = opts;
   const statusText = slaStatus === 'breached' ? 'breached' : (slaStatus === 'at_risk' ? 'at risk' : slaStatus);
   const vars = {
-    issueKey: linkedIssueKey,
+    issueKey: issueKeyWithSla,
     slaName: slaName || 'SLA',
     remainingTime: remainingTime || (slaStatus === 'breached' ? 'Overdue' : '—'),
     status: statusText,
@@ -637,8 +647,8 @@ function buildSlaAlertCommentBody(linkedIssueKey, slaStatus, mentions, opts = {}
     return templateToAdf(customTemplate, vars, mentions);
   }
   const content = [
-    { type: 'text', text: 'Linked ticket ' },
-    { type: 'text', text: linkedIssueKey, marks: [{ type: 'strong' }] },
+    { type: 'text', text: 'Parent ticket ' },
+    { type: 'text', text: issueKeyWithSla, marks: [{ type: 'strong' }] },
     { type: 'text', text: "'s SLA is now " },
     { type: 'text', text: statusText, marks: [{ type: 'strong' }] },
     { type: 'text', text: '. ' },
@@ -734,11 +744,102 @@ function buildWarnAssigneeCommentBody(opts) {
   };
 }
 
+/**
+ * Resolve field names or IDs (e.g. "Request Participants", "customfield_10001") to Jira field IDs.
+ * Returns a Map: userInput -> fieldId (for requesting in issue fields).
+ */
+async function resolveNotifyFromFieldIds(jira, namesOrIds) {
+  const inputs = Array.isArray(namesOrIds) ? namesOrIds.map((s) => String(s).trim()).filter(Boolean) : [];
+  if (inputs.length === 0) return new Map();
+  const byId = new Map();
+  const byName = new Map();
+  try {
+    const res = await jira(route`/rest/api/3/field`);
+    if (!res.ok) return byId;
+    const fields = await res.json();
+    for (const f of fields || []) {
+      const id = f.id;
+      const name = f.name != null ? String(f.name).trim().toLowerCase() : '';
+      if (id) byId.set(id.toLowerCase(), id);
+      if (name) byName.set(name, id);
+    }
+  } catch (e) {
+    console.error('[SLA Link Inspector] resolveNotifyFromFieldIds error', e?.message);
+    return new Map();
+  }
+  const result = new Map();
+  for (const input of inputs) {
+    if (/^customfield_\d+$/i.test(input)) {
+      result.set(input, input);
+      continue;
+    }
+    const id = byId.get(input.toLowerCase()) ?? byName.get(input.toLowerCase());
+    if (id) result.set(input, id);
+  }
+  return result;
+}
+
+/**
+ * Build mention-people (assignee, reporter, watchers, fieldUsers) from a single issue.
+ * Used so we @mention the linked ticket's people when posting the alert on the parent.
+ */
+async function buildMentionPeopleFromIssue(jira, issueKey, config, resolvedNotifyFields) {
+  const out = { assignee: null, reporter: null, watchers: [], fieldUsers: {} };
+  const fieldIds = ['assignee', 'reporter', ...(resolvedNotifyFields ? resolvedNotifyFields.values() : [])];
+  const fieldsQuery = [...new Set(fieldIds)].join(',');
+  try {
+    const res = await jira(route`/rest/api/3/issue/${issueKey}?fields=${fieldsQuery}`);
+    if (!res.ok) return out;
+    const issue = await res.json();
+    const assignee = issue.fields?.assignee;
+    const reporter = issue.fields?.reporter;
+    out.assignee = assignee ? { accountId: assignee.accountId, displayName: assignee.displayName || assignee.name } : null;
+    out.reporter = reporter ? { accountId: reporter.accountId, displayName: reporter.displayName || reporter.name } : null;
+    if (resolvedNotifyFields) {
+      for (const [userInput, fieldId] of resolvedNotifyFields) {
+        const val = issue.fields?.[fieldId];
+        out.fieldUsers[userInput] = extractUsersFromFieldValue(val);
+      }
+    }
+    if (config && (config.atRiskNotifyWatchers || config.breachedNotifyWatchers)) {
+      try {
+        const wRes = await jira(route`/rest/api/3/issue/${issueKey}/watchers`);
+        if (wRes.ok) {
+          const wData = await wRes.json();
+          out.watchers = (wData.watchers || []).map((w) => ({ accountId: w.accountId, displayName: w.displayName || w.name }));
+        }
+      } catch {
+        // ignore
+      }
+    }
+  } catch (e) {
+    console.error('[SLA Link Inspector] buildMentionPeopleFromIssue error', issueKey, e?.message);
+  }
+  return out;
+}
+
+/**
+ * Extract user list from a Jira field value (single user or array of users).
+ */
+function extractUsersFromFieldValue(value) {
+  if (value == null) return [];
+  if (Array.isArray(value)) {
+    return value
+      .filter((u) => u && u.accountId)
+      .map((u) => ({ accountId: u.accountId, displayName: u.displayName || u.name || 'user' }));
+  }
+  if (value.accountId) {
+    return [{ accountId: value.accountId, displayName: value.displayName || value.name || 'user' }];
+  }
+  return [];
+}
+
 function buildMentionsForTrigger(config, trigger, parentPeople) {
   const list = [];
   const assignee = parentPeople?.assignee;
   const reporter = parentPeople?.reporter;
   const watchers = Array.isArray(parentPeople?.watchers) ? parentPeople.watchers : [];
+  const fieldUsers = parentPeople?.fieldUsers || {};
   const isAtRisk = trigger === 'at_risk';
   if (isAtRisk) {
     if (config.atRiskNotifyAssignee && assignee?.accountId) list.push({ accountId: assignee.accountId, displayName: assignee.displayName || assignee.name });
@@ -746,14 +847,28 @@ function buildMentionsForTrigger(config, trigger, parentPeople) {
     if (config.atRiskNotifyWatchers) list.push(...watchers.filter((w) => w?.accountId));
     const extra = Array.isArray(config.atRiskAdditionalMentions) ? config.atRiskAdditionalMentions : [];
     list.push(...extra.filter((m) => m && m.accountId));
+    const fromFields = Array.isArray(config.atRiskNotifyFromFields) ? config.atRiskNotifyFromFields : [];
+    for (const key of fromFields) {
+      list.push(...(fieldUsers[key] || []));
+    }
   } else {
     if (config.breachedNotifyAssignee && assignee?.accountId) list.push({ accountId: assignee.accountId, displayName: assignee.displayName || assignee.name });
     if (config.breachedNotifyReporter && reporter?.accountId) list.push({ accountId: reporter.accountId, displayName: reporter.displayName || reporter.name });
     if (config.breachedNotifyWatchers) list.push(...watchers.filter((w) => w?.accountId));
     const extra = Array.isArray(config.breachedAdditionalMentions) ? config.breachedAdditionalMentions : [];
     list.push(...extra.filter((m) => m && m.accountId));
+    const fromFields = Array.isArray(config.breachedNotifyFromFields) ? config.breachedNotifyFromFields : [];
+    for (const key of fromFields) {
+      list.push(...(fieldUsers[key] || []));
+    }
   }
-  return list;
+  const seen = new Set();
+  return list.filter((m) => {
+    if (!m || !m.accountId) return false;
+    if (seen.has(m.accountId)) return false;
+    seen.add(m.accountId);
+    return true;
+  });
 }
 
 /**
@@ -868,18 +983,17 @@ async function sendEmailWebhook(webhookUrl, payload) {
 }
 
 /**
- * Add a comment on the parent issue when a linked ticket's SLA transitions to at-risk or breached (once per transition).
- * Uses per-trigger config: at-risk vs breached can notify different people (e.g. assignee vs assignee + reporter).
- * Skips if config.onlyNotifyIfOpen and the linked issue is already closed (statusCategory === 'done').
+ * When the parent ticket's SLA is at-risk or breached, post a comment on the linked ticket about the parent's SLA
+ * and @mention the linked ticket's people. Comment is posted on linkedIssueKey; message is about parentIssueKey's SLA.
  */
-async function maybeCommentOnSlaChange(jira, linkedIssue, parentIssueKey, parentPeople, forcePost = false) {
-  const { key, slaStatus, sla: slaLabel, hoursRemaining, statusCategory } = linkedIssue;
+async function maybeCommentOnSlaChange(jira, parentIssueKey, parentSla, linkedIssueKey, linkedStatusCategory, mentionPeople, forcePost = false) {
+  const slaStatus = parentSla?.status;
   if (slaStatus !== 'at_risk' && slaStatus !== 'breached') return;
   const config = await getAdminConfig();
   if (slaStatus === 'at_risk' && !config.triggerAtRisk) return;
   if (slaStatus === 'breached' && !config.triggerBreached) return;
-  if (config.onlyNotifyIfOpen && statusCategory === 'done') return;
-  const storageKey = `${SLA_STATUS_STORAGE_PREFIX}${key}`;
+  if (config.onlyNotifyIfOpen && linkedStatusCategory === 'done') return;
+  const storageKey = `${SLA_STATUS_STORAGE_PREFIX}${parentIssueKey}:${linkedIssueKey}`;
   if (!forcePost) {
     let lastStatus;
     try {
@@ -890,32 +1004,34 @@ async function maybeCommentOnSlaChange(jira, linkedIssue, parentIssueKey, parent
     const wasAlreadyAtRiskOrBreached = lastStatus === 'at_risk' || lastStatus === 'breached';
     if (wasAlreadyAtRiskOrBreached) return;
   }
+  const hoursRemaining = parentSla?.hoursRemaining;
+  const slaLabel = parentSla?.sla;
   try {
     const remainingTimeStr = hoursRemaining != null
       ? (hoursRemaining > 0 ? formatHours(hoursRemaining) + ' left' : formatHours(-hoursRemaining) + ' overdue')
       : '—';
-    const mentions = buildMentionsForTrigger(config, slaStatus, parentPeople);
+    const mentions = buildMentionsForTrigger(config, slaStatus, mentionPeople);
     const commentMentions = config.notificationMention ? mentions : [];
-    const body = buildSlaAlertCommentBody(key, slaStatus, commentMentions, {
+    const body = buildSlaAlertCommentBody(parentIssueKey, slaStatus, commentMentions, {
       slaName: slaLabel || 'SLA',
       remainingTime: remainingTimeStr,
       customTemplate: config.customTemplate || null,
     });
     if (config.notificationComment) {
-      const res = await jira(route`/rest/api/3/issue/${parentIssueKey}/comment`, {
+      const res = await jira(route`/rest/api/3/issue/${linkedIssueKey}/comment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        console.error('[SLA Link Inspector] Resolver: failed to add comment on', parentIssueKey, res.status, await res.text());
+        console.error('[SLA Link Inspector] Resolver: failed to add comment on linked', linkedIssueKey, res.status, await res.text());
         return;
       }
-      console.log('[SLA Link Inspector] Resolver: added SLA alert comment on parent', parentIssueKey, 'for linked', key, slaStatus);
+      console.log('[SLA Link Inspector] Resolver: added parent SLA alert comment on linked', linkedIssueKey, slaStatus);
     }
-    const vars = { issueKey: key, slaName: slaLabel || 'SLA', remainingTime: remainingTimeStr, status: slaStatus === 'breached' ? 'breached' : 'at risk' };
+    const vars = { issueKey: parentIssueKey, slaName: slaLabel || 'SLA', remainingTime: remainingTimeStr, status: slaStatus === 'breached' ? 'breached' : 'at risk' };
     const plainText = buildPlainTextMessage(config.customTemplate || null, vars, mentions);
-    const defaultMsg = `SLA status: Linked ticket ${key} is now ${vars.status}. Time remaining: ${remainingTimeStr}.`;
+    const defaultMsg = `Parent ticket ${parentIssueKey}'s SLA is now ${vars.status}. Time remaining: ${remainingTimeStr}.`;
     const messageForChannels = plainText || defaultMsg;
     const slackParams = getSlackSendParams(config);
     if (config.notificationSlack && slackParams) {
@@ -926,17 +1042,24 @@ async function maybeCommentOnSlaChange(jira, linkedIssue, parentIssueKey, parent
       await sendEmailWebhook(config.emailWebhookUrl, {
         event: 'sla_alert',
         parentIssueKey,
-        linkedIssueKey: key,
+        linkedIssueKey,
         status: vars.status,
         slaName: vars.slaName,
         remainingTime: remainingTimeStr,
         recipients: mentions.map((m) => ({ accountId: m.accountId, displayName: m.displayName || m.name })),
         message: messageForChannels,
-        subject: `SLA ${vars.status}: ${key}`,
+        subject: `SLA ${vars.status}: ${parentIssueKey}`,
       });
     }
+    if (!forcePost) {
+      try {
+        await kvs.set(storageKey, slaStatus);
+      } catch {
+        // ignore
+      }
+    }
   } catch (e) {
-    console.error('[SLA Link Inspector] Resolver: error adding comment on', parentIssueKey, e.message);
+    console.error('[SLA Link Inspector] Resolver: error adding comment on linked', linkedIssueKey, e.message);
   }
 }
 
@@ -1007,8 +1130,8 @@ resolver.define('getSlaDatesInfo', async ({ payload }) => {
 });
 
 /**
- * Test helper: post the SLA alert comment on the parent issue (the one the user has open), @mentioning the parent's assignee.
- * Payload: { parentIssueKey, linkedIssueKey }. Linked issue must be at_risk or breached.
+ * Test helper: post the parent's SLA alert comment on the linked ticket, @mentioning the linked ticket's people.
+ * Payload: { parentIssueKey, linkedIssueKey }. Parent's SLA must be at_risk or breached.
  */
 resolver.define('testFireSlaComment', async ({ payload }) => {
   const linkedIssueKey = payload?.linkedIssueKey != null ? String(payload.linkedIssueKey).trim() : '';
@@ -1018,49 +1141,28 @@ resolver.define('testFireSlaComment', async ({ payload }) => {
   try {
     const jira = api.asApp().requestJira.bind(api.asApp());
     const slaField = await getSlaFieldForRequest();
-    const fieldsParam = ['summary', 'status', 'assignee', 'priority'];
-    if (slaField?.id) fieldsParam.push(slaField.id);
-    const fieldsQuery = fieldsParam.join(',');
-    const [linkedRes, parentRes] = await Promise.all([
-      jira(route`/rest/api/3/issue/${linkedIssueKey}?fields=${fieldsQuery}`),
-      jira(route`/rest/api/3/issue/${parentIssueKey}?fields=assignee,reporter`),
-    ]);
-    if (!linkedRes.ok) return { ok: false, error: `Failed to load linked issue: ${linkedRes.status}` };
-    if (!parentRes.ok) return { ok: false, error: `Failed to load parent issue: ${parentRes.status}` };
-    const linkedIssue = await linkedRes.json();
-    const parentIssue = await parentRes.json();
-    const slaData = getSlaData(linkedIssue.fields, slaField);
-    const linked = {
-      key: linkedIssueKey,
-      slaStatus: slaData.status,
-      sla: slaData.label,
-      hoursRemaining: slaData.hoursRemaining,
-      statusCategory: linkedIssue.fields?.status?.statusCategory?.key ?? null,
-    };
-    if (linked.slaStatus !== 'at_risk' && linked.slaStatus !== 'breached') {
-      return { ok: false, error: `Linked issue is not at_risk or breached (current: ${linked.slaStatus}).` };
-    }
-    const parentAssignee = parentIssue.fields?.assignee;
-    const parentReporter = parentIssue.fields?.reporter;
-    const parentPeople = {
-      assignee: parentAssignee ? { accountId: parentAssignee.accountId, displayName: parentAssignee.displayName || parentAssignee.name } : null,
-      reporter: parentReporter ? { accountId: parentReporter.accountId, displayName: parentReporter.displayName || parentReporter.name } : null,
-      watchers: [],
-    };
+    const parentFieldsParam = ['summary', 'status'];
+    if (slaField?.id) parentFieldsParam.push(slaField.id);
+    const parentFieldsQuery = parentFieldsParam.join(',');
     const cfg = await getAdminConfig();
-    if (cfg.atRiskNotifyWatchers || cfg.breachedNotifyWatchers) {
-      try {
-        const wRes = await jira(route`/rest/api/3/issue/${parentIssueKey}/watchers`);
-        if (wRes.ok) {
-          const wData = await wRes.json();
-          parentPeople.watchers = (wData.watchers || []).map((w) => ({ accountId: w.accountId, displayName: w.displayName || w.name }));
-        }
-      } catch {
-        // ignore
-      }
+    const notifyFieldInputs = [...(cfg.atRiskNotifyFromFields || []), ...(cfg.breachedNotifyFromFields || [])];
+    const resolvedNotifyFields = await resolveNotifyFromFieldIds(jira, notifyFieldInputs);
+    const [parentRes, linkedRes] = await Promise.all([
+      jira(route`/rest/api/3/issue/${parentIssueKey}?fields=${parentFieldsQuery}`),
+      jira(route`/rest/api/3/issue/${linkedIssueKey}?fields=status`),
+    ]);
+    if (!parentRes.ok) return { ok: false, error: `Failed to load parent issue: ${parentRes.status}` };
+    if (!linkedRes.ok) return { ok: false, error: `Failed to load linked issue: ${linkedRes.status}` };
+    const parentIssue = await parentRes.json();
+    const linkedIssue = await linkedRes.json();
+    const parentSla = getSlaData(parentIssue.fields, slaField);
+    if (parentSla.status !== 'at_risk' && parentSla.status !== 'breached') {
+      return { ok: false, error: `Parent's SLA is not at_risk or breached (current: ${parentSla.status}).` };
     }
-    await maybeCommentOnSlaChange(jira, linked, parentIssueKey, parentPeople, true);
-    return { ok: true, message: `Comment posted on parent ${parentIssueKey} (linked ${linkedIssueKey} is ${linked.slaStatus}).` };
+    const linkedStatusCategory = linkedIssue.fields?.status?.statusCategory?.key ?? null;
+    const linkedPeople = await buildMentionPeopleFromIssue(jira, linkedIssueKey, cfg, resolvedNotifyFields);
+    await maybeCommentOnSlaChange(jira, parentIssueKey, parentSla, linkedIssueKey, linkedStatusCategory, linkedPeople, true);
+    return { ok: true, message: `Comment posted on linked ticket ${linkedIssueKey} (parent ${parentIssueKey} SLA: ${parentSla.status}).` };
   } catch (e) {
     console.error('[SLA Link Inspector] testFireSlaComment error', e.message);
     return { ok: false, error: e.message || 'Unknown error' };
@@ -1324,8 +1426,14 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
       console.log('[SLA Link Inspector] Resolver: no SLA field found in Jira instance');
     }
 
+    const configEarly = await getAdminConfig();
+    const notifyFieldInputs = [...(configEarly.atRiskNotifyFromFields || []), ...(configEarly.breachedNotifyFromFields || [])];
+    const resolvedNotifyFields = await resolveNotifyFromFieldIds(jira, notifyFieldInputs);
+    const parentFieldsParam = ['issuelinks'];
+    if (slaFieldId) parentFieldsParam.push(slaFieldId);
+    const parentFieldsQuery = parentFieldsParam.join(',');
     const issueRes = await jira(
-      route`/rest/api/3/issue/${safeIssueKey}?fields=issuelinks,assignee,reporter`
+      route`/rest/api/3/issue/${safeIssueKey}?fields=${parentFieldsQuery}`
     );
     if (!issueRes.ok) {
       const errText = await issueRes.text();
@@ -1334,28 +1442,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
     }
 
     const issueData = await issueRes.json();
-    const parentAssignee = issueData.fields?.assignee;
-    const parentReporter = issueData.fields?.reporter;
-    const parentPeople = {
-      assignee: parentAssignee ? { accountId: parentAssignee.accountId, displayName: parentAssignee.displayName || parentAssignee.name } : null,
-      reporter: parentReporter ? { accountId: parentReporter.accountId, displayName: parentReporter.displayName || parentReporter.name } : null,
-      watchers: [],
-    };
-    const configEarly = await getAdminConfig();
-    if (configEarly.atRiskNotifyWatchers || configEarly.breachedNotifyWatchers) {
-      try {
-        const watchersRes = await jira(route`/rest/api/3/issue/${safeIssueKey}/watchers`);
-        if (watchersRes.ok) {
-          const watchersData = await watchersRes.json();
-          const watchersList = watchersData.watchers || [];
-          parentPeople.watchers = watchersList.map((w) => ({ accountId: w.accountId, displayName: w.displayName || w.name }));
-        }
-      } catch {
-        // ignore
-      }
-    }
-    const parentAssigneeAccountId = parentAssignee?.accountId ?? null;
-    const parentAssigneeDisplayName = parentAssignee?.displayName ?? parentAssignee?.name ?? null;
+    const parentSla = getSlaData(issueData.fields, slaField);
     const links = issueData.fields?.issuelinks || [];
     const linkedKeys = new Set();
     for (const link of links) {
@@ -1367,7 +1454,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
     console.log('[SLA Link Inspector] Resolver: linked issues returned', linkedKeys.size);
 
     if (linkedKeys.size === 0) {
-      return { linkedIssues: [], issueKey: safeIssueKey, licenseStatus };
+      return { linkedIssues: [], issueKey: safeIssueKey, parentSla: parentSla || null, licenseStatus };
     }
 
     const fieldsParam = ['summary', 'status', 'assignee', 'priority'];
@@ -1436,75 +1523,68 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
 
     for (const linked of linkedIssues) {
       if (linked.error) continue;
-      const storageKey = `${SLA_STATUS_STORAGE_PREFIX}${linked.key}`;
+      const linkedPeople = await buildMentionPeopleFromIssue(jira, linked.key, configEarly, resolvedNotifyFields);
       try {
-        await maybeCommentOnSlaChange(jira, linked, safeIssueKey, parentPeople);
-        await kvs.set(storageKey, linked.slaStatus);
+        await maybeCommentOnSlaChange(jira, safeIssueKey, parentSla, linked.key, linked.statusCategory, linkedPeople);
       } catch (e) {
         console.error('[SLA Link Inspector] Resolver: storage/comment error for', linked.key, e.message);
       }
     }
 
     const config = await getAdminConfig();
-    if (config.trigger30MinRemaining) {
-      for (const linked of linkedIssues) {
-        if (linked.error) continue;
-        if (config.onlyNotifyIfOpen && linked.statusCategory === 'done') continue;
-        const hr = linked.hoursRemaining;
-        if (hr == null || hr <= 0 || hr > 0.5) continue;
-        const key30 = `${SLA_STATUS_STORAGE_PREFIX}30min:${linked.key}`;
-        try {
-          const already = await kvs.get(key30);
-          if (already) continue;
-          const remainingTimeStr = formatHours(hr) + ' left';
+    const hrParent = parentSla?.hoursRemaining;
+    if (config.trigger30MinRemaining && hrParent != null && hrParent > 0 && hrParent <= 0.5) {
+      const key30 = `${SLA_STATUS_STORAGE_PREFIX}30min:${safeIssueKey}`;
+      try {
+        const already = await kvs.get(key30);
+        if (!already) {
+          await kvs.set(key30, 'sent');
+          const remainingTimeStr = formatHours(hrParent) + ' left';
           const template = config.customTemplate || 'Linked ticket {{issueKey}}: 30 minutes remaining. {{assignee}} please review.';
-          const mentions30 = buildMentionsForTrigger(config, 'at_risk', parentPeople);
-          const commentMentions30 = config.notificationMention ? mentions30 : [];
-          const adfBody = templateToAdf(template, {
-            issueKey: linked.key,
-            slaName: linked.sla || 'SLA',
-            remainingTime: remainingTimeStr,
-            status: '30 minutes remaining',
-          }, commentMentions30);
-          if (config.notificationComment) {
-            const res = await jira(route`/rest/api/3/issue/${safeIssueKey}/comment`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-              body: JSON.stringify(adfBody),
-            });
-            if (!res.ok) continue;
-            await kvs.set(key30, 'sent');
-            console.log('[SLA Link Inspector] Resolver: 30min warning posted on parent for', linked.key);
-          } else {
-            await kvs.set(key30, 'sent');
+          const vars30 = { issueKey: safeIssueKey, slaName: parentSla?.sla || 'SLA', remainingTime: remainingTimeStr, status: '30 minutes remaining' };
+          for (const linked of linkedIssues) {
+            if (linked.error) continue;
+            if (config.onlyNotifyIfOpen && linked.statusCategory === 'done') continue;
+            const linkedPeople30 = await buildMentionPeopleFromIssue(jira, linked.key, config, resolvedNotifyFields);
+            const mentions30 = buildMentionsForTrigger(config, 'at_risk', linkedPeople30);
+            const commentMentions30 = config.notificationMention ? mentions30 : [];
+            const adfBody = templateToAdf(template, vars30, commentMentions30);
+            if (config.notificationComment) {
+              const res = await jira(route`/rest/api/3/issue/${linked.key}/comment`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify(adfBody),
+              });
+              if (!res.ok) continue;
+              console.log('[SLA Link Inspector] Resolver: 30min warning (parent SLA) posted on linked', linked.key);
+            }
+            const plain30 = buildPlainTextMessage(config.customTemplate || null, vars30, mentions30) || `Parent ticket ${safeIssueKey} SLA: 30 minutes remaining.`;
+            const slackParams30 = getSlackSendParams(config);
+            if (config.notificationSlack && slackParams30) {
+              if (slackParams30.method === 'webhook') await sendSlackNotification(slackParams30.webhookUrl, plain30);
+              else await sendSlackViaWebApi(slackParams30.token, slackParams30.channelId, plain30);
+            }
+            if (config.notificationEmail && config.emailWebhookUrl) {
+              await sendEmailWebhook(config.emailWebhookUrl, {
+                event: 'sla_alert',
+                parentIssueKey: safeIssueKey,
+                linkedIssueKey: linked.key,
+                status: '30 minutes remaining',
+                slaName: vars30.slaName,
+                remainingTime: remainingTimeStr,
+                recipients: mentions30.map((m) => ({ accountId: m.accountId, displayName: m.displayName || m.name })),
+                message: plain30,
+                subject: `SLA 30 min remaining: ${safeIssueKey}`,
+              });
+            }
           }
-          const vars30 = { issueKey: linked.key, slaName: linked.sla || 'SLA', remainingTime: remainingTimeStr, status: '30 minutes remaining' };
-          const plain30 = buildPlainTextMessage(config.customTemplate || null, vars30, mentions30) || `Linked ticket ${linked.key}: 30 minutes remaining.`;
-          const slackParams30 = getSlackSendParams(config);
-          if (config.notificationSlack && slackParams30) {
-            if (slackParams30.method === 'webhook') await sendSlackNotification(slackParams30.webhookUrl, plain30);
-            else await sendSlackViaWebApi(slackParams30.token, slackParams30.channelId, plain30);
-          }
-          if (config.notificationEmail && config.emailWebhookUrl) {
-            await sendEmailWebhook(config.emailWebhookUrl, {
-              event: 'sla_alert',
-              parentIssueKey: safeIssueKey,
-              linkedIssueKey: linked.key,
-              status: '30 minutes remaining',
-              slaName: vars30.slaName,
-              remainingTime: remainingTimeStr,
-              recipients: mentions30.map((m) => ({ accountId: m.accountId, displayName: m.displayName || m.name })),
-              message: plain30,
-              subject: `SLA 30 min remaining: ${linked.key}`,
-            });
-          }
-        } catch (e) {
-          console.error('[SLA Link Inspector] Resolver: 30min comment error for', linked.key, e.message);
         }
+      } catch (e) {
+        console.error('[SLA Link Inspector] Resolver: 30min error', e.message);
       }
     }
 
-    return { linkedIssues, issueKey: safeIssueKey, licenseStatus };
+    return { linkedIssues, issueKey: safeIssueKey, parentSla: parentSla || null, licenseStatus };
   } catch (err) {
     console.error('[SLA Link Inspector] Resolver error:', err.message || err);
     return {

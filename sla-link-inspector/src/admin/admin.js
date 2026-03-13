@@ -22,6 +22,8 @@ const CONFIG_KEYS = [
   'slackBotToken',
   'customTemplate',
   'relayCommentTemplate',
+  'atRiskNotifyFromFields',
+  'breachedNotifyFromFields',
 ];
 
 const errorEl = document.getElementById('error');
@@ -79,6 +81,10 @@ function formToPayload() {
       if (el.value && el.value.trim() !== '') payload[key] = el.value.trim();
       continue;
     }
+    if (key === 'atRiskNotifyFromFields' || key === 'breachedNotifyFromFields') {
+      payload[key] = (el.value || '').split(',').map((s) => s.trim()).filter(Boolean);
+      continue;
+    }
     if (el.type === 'checkbox') {
       payload[key] = el.checked;
     } else {
@@ -95,6 +101,10 @@ function payloadToForm(payload) {
     if (key === 'slackBotToken') {
       el.value = '';
       el.placeholder = value && String(value).trim() ? '•••••••• (saved)' : 'xoxb-...';
+      continue;
+    }
+    if (key === 'atRiskNotifyFromFields' || key === 'breachedNotifyFromFields') {
+      el.value = Array.isArray(value) ? value.join(', ') : '';
       continue;
     }
     if (el.type === 'checkbox') {
@@ -180,6 +190,32 @@ async function testSlack() {
 
 const testSlackBtn = document.getElementById('testSlackBtn');
 if (testSlackBtn) testSlackBtn.addEventListener('click', testSlack);
+
+async function clearSlackToken() {
+  if (!isLicensed) return;
+  const btn = document.getElementById('clearSlackTokenBtn');
+  if (btn) btn.disabled = true;
+  hideFeedback();
+  try {
+    const payload = formToPayload();
+    payload.slackBotToken = '';
+    const result = await invoke('setAdminConfig', payload);
+    if (result && result.ok) {
+      showSaved();
+      await load();
+    } else {
+      showError(result?.error || 'Failed to clear token.');
+    }
+  } catch (e) {
+    showError(e.message || 'Failed to clear token.');
+  } finally {
+    const clearBtn = document.getElementById('clearSlackTokenBtn');
+    if (clearBtn) clearBtn.disabled = false;
+  }
+}
+
+const clearSlackTokenBtn = document.getElementById('clearSlackTokenBtn');
+if (clearSlackTokenBtn) clearSlackTokenBtn.addEventListener('click', clearSlackToken);
 
 function renderMentionChips(trigger) {
   const list = trigger === 'atRisk' ? additionalMentionsAtRisk : additionalMentionsBreached;

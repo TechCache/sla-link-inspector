@@ -7,7 +7,7 @@
 </head>
 <body>
   <div id="app">
-    <h1>Linked SLA Alerts</h1>
+    <h1>Configurations</h1>
     <p class="subtitle">Configure when and how to notify about linked-issue SLA status. The Send SLA Alert to Linked Tickets panel sends this issue's SLA to linked tickets and notifies assignees.</p>
     <div id="license-banner" class="license-banner" style="display: none;" role="alert"></div>
 
@@ -22,7 +22,7 @@
 
     <section class="config-section">
       <h2>Trigger conditions</h2>
-      <p class="hint">Notify when a linked issue’s SLA becomes:</p>
+      <p class="hint">Notify when this (parent) ticket’s SLA becomes:</p>
       <label class="checkbox-label"><input type="checkbox" id="triggerAtRisk" /> At risk</label>
       <label class="checkbox-label"><input type="checkbox" id="triggerBreached" /> Breached</label>
       <label class="checkbox-label"><input type="checkbox" id="trigger30MinRemaining" /> 30 minutes remaining</label>
@@ -33,7 +33,7 @@
 
     <section class="config-section">
       <h2>When SLA becomes <strong>At Risk</strong> → who gets notified</h2>
-      <p class="hint">Comment is posted on the parent issue and can @mention:</p>
+      <p class="hint">Comment is posted on the <strong>linked ticket</strong> (this ticket is the parent with the SLA) and @mentions that ticket’s people:</p>
       <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyAssignee" /> Assignee</label>
       <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyReporter" /> Reporter</label>
       <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyWatchers" /> Watchers</label>
@@ -44,11 +44,13 @@
         <div id="atRiskMentionResults" class="mention-results"></div>
         <div id="atRiskMentionChips" class="mention-chips"></div>
       </div>
+      <p class="hint small" style="margin-top: 10px;">Also notify users from linked-ticket fields (comma-separated field name or ID, e.g. <code>Request Participants</code>, <code>customfield_10001</code>):</p>
+      <input type="text" id="atRiskNotifyFromFields" class="text-input" placeholder="e.g. Request Participants" style="max-width: 400px; margin-top: 4px;" />
     </section>
 
     <section class="config-section">
       <h2>When SLA becomes <strong>Breached</strong> → who gets notified</h2>
-      <p class="hint">Use this for escalation (e.g. assignee + reporter as team lead):</p>
+      <p class="hint">All options below refer to the <strong>linked ticket</strong> (whose assignee, reporter, watchers, or custom fields get @mentioned).</p>
       <label class="checkbox-label"><input type="checkbox" id="breachedNotifyAssignee" /> Assignee</label>
       <label class="checkbox-label"><input type="checkbox" id="breachedNotifyReporter" /> Reporter</label>
       <label class="checkbox-label"><input type="checkbox" id="breachedNotifyWatchers" /> Watchers</label>
@@ -59,13 +61,15 @@
         <div id="breachedMentionResults" class="mention-results"></div>
         <div id="breachedMentionChips" class="mention-chips"></div>
       </div>
+      <p class="hint small" style="margin-top: 10px;">Also notify users from linked-ticket fields (comma-separated field name or ID):</p>
+      <input type="text" id="breachedNotifyFromFields" class="text-input" placeholder="e.g. Request Participants" style="max-width: 400px; margin-top: 4px;" />
     </section>
 
     <section class="config-section">
       <h2>Notification type</h2>
       <p class="hint">Send notification as (you can enable more than one):</p>
       <label class="checkbox-label"><input type="checkbox" id="notificationComment" /> Jira Comment</label>
-      <p class="hint small">Post a comment on the parent issue.</p>
+      <p class="hint small">Post a comment on each linked ticket (about the parent's SLA).</p>
       <label class="checkbox-label"><input type="checkbox" id="notificationMention" /> Jira @Mention</label>
       <p class="hint small">Include @mentions in the comment so assignee/reporter/watchers get notified. Uncheck to post without pinging.</p>
       <label class="checkbox-label"><input type="checkbox" id="notificationSlack" /> Slack</label>
@@ -76,6 +80,7 @@
       <p class="hint small" style="margin-left: 24px; margin-top: 10px;"><strong>Option 2 – Web API (Bot token + channel):</strong></p>
       <input type="text" id="slackChannelId" class="text-input" placeholder="Channel ID (e.g. C01234ABCD)" style="margin-left: 24px; margin-top: 4px; max-width: 280px;" />
       <input type="password" id="slackBotToken" class="text-input" placeholder="xoxb-..." style="margin-left: 24px; margin-top: 4px; max-width: 400px;" autocomplete="off" />
+      <button type="button" id="clearSlackTokenBtn" class="btn btn-secondary" style="margin-left: 8px; margin-top: 4px;">Clear saved token</button>
       <p class="hint small" style="margin-left: 24px;">You need a bot token. Either paste it here (from Slack: Your app → OAuth & Permissions → Bot User OAuth Token), or set the <code>SLACK_BOT_TOKEN</code> environment variable in Forge and leave this box blank. Channel ID: in Slack, open the channel → click the channel name → View channel details.</p>
       <button type="button" id="testSlackBtn" class="btn btn-secondary" style="margin-left: 24px; margin-top: 8px;">Test Slack</button>
       <label class="checkbox-label"><input type="checkbox" id="notificationEmail" /> Email (webhook)</label>
@@ -85,14 +90,14 @@
 
     <section class="config-section">
       <h2>Custom message template</h2>
-      <p class="hint">Used for <strong>alerts posted on the parent issue</strong> when a linked issue’s SLA goes at risk, breached, or 30 minutes remaining (Trigger conditions above). For the “Send SLA to linked tickets” comment, use the template below.</p>
+      <p class="hint">Used for <strong>alerts posted on each linked ticket</strong> when this (parent) ticket’s SLA goes at risk, breached, or 30 minutes remaining (Trigger conditions above). For the “Send SLA to linked tickets” comment, use the template below.</p>
       <p class="hint">Variables:</p>
       <ul class="vars-list">
-        <li><code>{{issueKey}}</code> – the linked issue key (the one that went at risk/breached)</li>
+        <li><code>{{issueKey}}</code> – the parent issue key (the ticket that has the SLA)</li>
         <li><code>{{slaName}}</code> – SLA field name</li>
         <li><code>{{remainingTime}}</code> – e.g. “9d left” or “2h overdue”</li>
         <li><code>{{status}}</code> – at risk / breached / 30 minutes remaining</li>
-        <li><code>{{assignee}}</code> – @mention(s): assignee, reporter, watchers as configured for that trigger</li>
+        <li><code>{{assignee}}</code> – @mention(s) from the linked ticket (assignee, reporter, watchers, custom fields as configured)</li>
       </ul>
       <textarea id="customTemplate" class="template-input" rows="10" placeholder="Leave empty to use the default message."></textarea>
     </section>
