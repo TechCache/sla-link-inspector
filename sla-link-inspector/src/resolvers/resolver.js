@@ -4,12 +4,16 @@ import { kvs } from '@forge/kvs';
 
 const resolver = new Resolver();
 
+/** Set to true to temporarily bypass license check (e.g. for screenshots). Set back to false before release. */
+const LICENSE_CHECK_BYPASS = true;
+
 /**
  * Get license status for Marketplace paid app. In PRODUCTION, a valid paid license has license?.isActive === true.
  * In DEVELOPMENT/STAGING (or when unlisted), license is undefined — we treat as allowed for development.
  * @returns {{ licensed: boolean, reason?: string, isProduction?: boolean }}
  */
 function getLicenseStatus() {
+  if (LICENSE_CHECK_BYPASS) return { licensed: true, isProduction: false };
   try {
     const ctx = getAppContext();
     const isProduction = ctx.environmentType === 'PRODUCTION';
