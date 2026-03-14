@@ -5,7 +5,7 @@ import { kvs } from '@forge/kvs';
 const resolver = new Resolver();
 
 /** Set to true to temporarily bypass license check (e.g. for screenshots). Set back to false before release. */
-const LICENSE_CHECK_BYPASS = true;
+const LICENSE_CHECK_BYPASS = false;
 
 /**
  * Get license status for Marketplace paid app. In PRODUCTION, a valid paid license has license?.isActive === true.
