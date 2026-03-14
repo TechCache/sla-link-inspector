@@ -71,13 +71,11 @@ const DEFAULT_ADMIN_CONFIG = {
   breachedNotifyFromFields: [],
   customTemplate: `⚠️ SLA Alert
 
-Issue: {{issueKey}}
-
-The SLA "{{slaName}}" is now {{status}}.
+The SLA is now {{status}}.
 
 Time remaining: {{remainingTime}}
 
-Please review this issue to avoid breach. {{assignee}}`,
+Please review this issue. {{assignee}}`,
   // Optional override when auto-detect doesn't find your SLA field (e.g. different name or language)
   slaFieldId: '',
   slaFieldName: '',
