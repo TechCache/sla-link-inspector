@@ -26,7 +26,7 @@ modules:
   jira:issuePanel:
     - key: sla-link-inspector-panel
       title: Linked SLA Alerts
-      icon: https://avatars.githubusercontent.com/u/214186582?v=4
+      icon: https://raw.githubusercontent.com/cglove/sla-link-inspector/main/sla-link-inspector/assets/icon.png
       resource: sla-ui-v2
       resolver:
         function: resolver
