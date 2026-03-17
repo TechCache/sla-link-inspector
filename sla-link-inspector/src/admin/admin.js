@@ -5,6 +5,7 @@ const CONFIG_KEYS = [
   'triggerAtRisk',
   'triggerBreached',
   'trigger30MinRemaining',
+  'warningMinutesRemaining',
   'onlyNotifyIfOpen',
   'atRiskNotifyAssignee',
   'atRiskNotifyReporter',
@@ -16,6 +17,8 @@ const CONFIG_KEYS = [
   'notificationMention',
   'notificationEmail',
   'notificationSlack',
+  'notificationSlackDm',
+  'notificationSlackDmEmails',
   'emailWebhookUrl',
   'slackWebhookUrl',
   'slackChannelId',
@@ -85,6 +88,15 @@ function formToPayload() {
       payload[key] = (el.value || '').split(',').map((s) => s.trim()).filter(Boolean);
       continue;
     }
+    if (key === 'notificationSlackDmEmails') {
+      payload[key] = (el.value || '').split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+      continue;
+    }
+    if (key === 'warningMinutesRemaining') {
+      const n = parseInt(el.value, 10);
+      payload[key] = Number.isNaN(n) ? 30 : Math.max(1, Math.min(1440, n));
+      continue;
+    }
     if (el.type === 'checkbox') {
       payload[key] = el.checked;
     } else {
@@ -105,6 +117,14 @@ function payloadToForm(payload) {
     }
     if (key === 'atRiskNotifyFromFields' || key === 'breachedNotifyFromFields') {
       el.value = Array.isArray(value) ? value.join(', ') : '';
+      continue;
+    }
+    if (key === 'notificationSlackDmEmails') {
+      el.value = Array.isArray(value) ? value.join(', ') : '';
+      continue;
+    }
+    if (key === 'warningMinutesRemaining') {
+      el.value = value != null && Number.isFinite(Number(value)) ? Math.max(1, Math.min(1440, Number(value))) : '30';
       continue;
     }
     if (el.type === 'checkbox') {

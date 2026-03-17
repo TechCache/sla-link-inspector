@@ -5,7 +5,7 @@ import { kvs } from '@forge/kvs';
 const resolver = new Resolver();
 
 /** Set to true to temporarily bypass license check (e.g. for screenshots). Set back to false before release. */
-const LICENSE_CHECK_BYPASS = false;
+const LICENSE_CHECK_BYPASS = true;
 
 /**
  * Get license status for Marketplace paid app. In PRODUCTION, a valid paid license has license?.isActive === true.
@@ -41,6 +41,7 @@ const DEFAULT_ADMIN_CONFIG = {
   triggerAtRisk: true,
   triggerBreached: true,
   trigger30MinRemaining: false,
+  warningMinutesRemaining: 30,
   // At Risk → who to notify (parent issue's users)
   atRiskNotifyAssignee: true,
   atRiskNotifyReporter: false,
@@ -59,6 +60,8 @@ const DEFAULT_ADMIN_CONFIG = {
   notificationMention: true,
   notificationEmail: false,
   notificationSlack: false,
+  notificationSlackDm: false,
+  notificationSlackDmEmails: [],
   emailWebhookUrl: '',
   slackWebhookUrl: '',
   slackChannelId: '',
@@ -388,8 +391,13 @@ resolver.define('setAdminConfig', async ({ payload }) => {
           return true;
         })
         .map((m) => ({ accountId: String(m.accountId), displayName: m.displayName != null ? String(m.displayName) : '' }));
-    } else if ((key === 'atRiskNotifyFromFields' || key === 'breachedNotifyFromFields') && Array.isArray(value)) {
+    }     else if ((key === 'atRiskNotifyFromFields' || key === 'breachedNotifyFromFields') && Array.isArray(value)) {
       toStore[key] = value.map((s) => String(s).trim()).filter(Boolean);
+    } else if (key === 'notificationSlackDmEmails' && Array.isArray(value)) {
+      toStore[key] = value.map((s) => String(s).trim()).filter(Boolean);
+    } else if (key === 'warningMinutesRemaining') {
+      const n = parseInt(value, 10);
+      if (!Number.isNaN(n) && n >= 1 && n <= 1440) toStore[key] = n;
     } else if (typeof value === 'boolean') toStore[key] = value;
   }
   try {
@@ -416,7 +424,7 @@ resolver.define('testSlackWebhook', async ({ payload }) => {
     : await getAdminConfig();
   const params = getSlackSendParams(config);
   if (!params) {
-    return { ok: false, error: 'Configure either an Incoming Webhook URL or a Bot token + Channel ID (and optionally set SLACK_BOT_TOKEN in Forge env).' };
+    return { ok: false, error: 'Configure either an Incoming Webhook URL or a Bot token + Channel ID in app configuration.' };
   }
   const testMessage = 'Test message. If you see this, your Slack integration is working.';
   try {
@@ -925,7 +933,7 @@ async function sendSlackNotification(webhookUrl, message, opts = {}) {
  * @param {object} [opts] - { mrkdwn: true } to render message as mrkdwn (e.g. clickable <url|text> links).
  */
 async function sendSlackViaWebApi(botToken, channelId, message, opts = {}) {
-  const token = (botToken || '').trim() || (typeof process !== 'undefined' && process.env && process.env.SLACK_BOT_TOKEN);
+  const token = (botToken || '').trim();
   const channel = (channelId || '').trim();
   if (!token || !channel) return;
   try {
@@ -950,18 +958,83 @@ async function sendSlackViaWebApi(botToken, channelId, message, opts = {}) {
 }
 
 /**
- * Resolve how to send to Slack: webhook URL takes precedence; else Bot token + Channel ID (config or SLACK_BOT_TOKEN env).
+ * Get Jira user email by accountId (for Slack DM lookup). Returns email string or null.
+ */
+async function getEmailForJiraAccountId(jira, accountId) {
+  if (!jira || !accountId) return null;
+  try {
+    const res = await jira(route`/rest/api/3/user?accountId=${encodeURIComponent(accountId)}`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    const user = await res.json();
+    return (user && user.emailAddress) ? String(user.emailAddress).trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Send a DM to a Slack user by email: users.lookupByEmail → conversations.open → chat.postMessage.
+ * Best-effort; logs and returns on errors (no throw). Requires bot token with users:read.email and im:write.
+ */
+async function sendSlackDm(botToken, email, message) {
+  const token = (botToken || '').trim();
+  const e = (email || '').trim().toLowerCase();
+  if (!token || !e) return;
+  try {
+    const lookupRes = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(e)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const lookupData = await lookupRes.json().catch(() => ({}));
+    if (!lookupData.ok || !lookupData.user?.id) {
+      if (lookupData.error !== 'users_not_found') console.error('[SLA Link Inspector] Slack DM lookup failed for', e, lookupData.error);
+      return;
+    }
+    const userId = lookupData.user.id;
+    const openRes = await fetch('https://slack.com/api/conversations.open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ users: [userId] }),
+    });
+    const openData = await openRes.json().catch(() => ({}));
+    if (!openData.ok || !openData.channel?.id) {
+      console.error('[SLA Link Inspector] Slack DM conversations.open failed', openData.error);
+      return;
+    }
+    const channelId = openData.channel.id;
+    const postRes = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ channel: channelId, text: message }),
+    });
+    const postData = await postRes.json().catch(() => ({}));
+    if (!postData.ok) console.error('[SLA Link Inspector] Slack DM post failed', postData.error);
+  } catch (err) {
+    console.error('[SLA Link Inspector] Slack DM error', err.message);
+  }
+}
+
+/**
+ * Resolve how to send to Slack: webhook URL takes precedence; else Bot token + Channel ID from admin config.
  * Returns { method: 'webhook', webhookUrl } | { method: 'api', token, channelId } | null.
+ * Channel posting only runs when both token and channelId are set.
  */
 function getSlackSendParams(config) {
   const webhookUrl = (config.slackWebhookUrl || '').trim();
   if (webhookUrl && webhookUrl.startsWith('https://hooks.slack.com/')) {
     return { method: 'webhook', webhookUrl };
   }
-  const token = (config.slackBotToken || '').trim() || (typeof process !== 'undefined' && process.env && process.env.SLACK_BOT_TOKEN) || '';
+  const token = (config.slackBotToken || '').trim();
   const channelId = (config.slackChannelId || '').trim();
   if (token && channelId) return { method: 'api', token, channelId };
   return null;
+}
+
+/** Bot token for DMs only (no channel needed). DMs work for any workspace member by email. */
+function getSlackBotTokenForDm(config) {
+  const token = (config.slackBotToken || '').trim();
+  return token || null;
 }
 
 /**
@@ -1039,6 +1112,29 @@ async function maybeCommentOnSlaChange(jira, parentIssueKey, parentSla, linkedIs
     if (config.notificationSlack && slackParams) {
       if (slackParams.method === 'webhook') await sendSlackNotification(slackParams.webhookUrl, messageForChannels);
       else await sendSlackViaWebApi(slackParams.token, slackParams.channelId, messageForChannels);
+    }
+    const dmEnabled = config.notificationSlackDm || (Array.isArray(config.notificationSlackDmEmails) && config.notificationSlackDmEmails.length > 0);
+    const dmToken = getSlackBotTokenForDm(config);
+    if (dmEnabled && dmToken) {
+      const dmSent = new Set();
+      if (config.notificationSlackDm && Array.isArray(mentions)) {
+        for (const m of mentions) {
+          if (!m?.accountId) continue;
+          const email = await getEmailForJiraAccountId(jira, m.accountId);
+          if (email && !dmSent.has(email.toLowerCase())) {
+            dmSent.add(email.toLowerCase());
+            await sendSlackDm(dmToken, email, messageForChannels);
+          }
+        }
+      }
+      const extraEmails = Array.isArray(config.notificationSlackDmEmails) ? config.notificationSlackDmEmails : [];
+      for (const email of extraEmails) {
+        const e = (email && String(email).trim()) || '';
+        if (e && !dmSent.has(e.toLowerCase())) {
+          dmSent.add(e.toLowerCase());
+          await sendSlackDm(dmToken, e, messageForChannels);
+        }
+      }
     }
     if (config.notificationEmail && config.emailWebhookUrl) {
       await sendEmailWebhook(config.emailWebhookUrl, {
@@ -1535,15 +1631,18 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
 
     const config = await getAdminConfig();
     const hrParent = parentSla?.hoursRemaining;
-    if (config.trigger30MinRemaining && hrParent != null && hrParent > 0 && hrParent <= 0.5) {
-      const key30 = `${SLA_STATUS_STORAGE_PREFIX}30min:${safeIssueKey}`;
+    const warningMins = Math.max(1, Math.min(1440, config.warningMinutesRemaining || 30));
+    const warningHours = warningMins / 60;
+    if (config.trigger30MinRemaining && hrParent != null && hrParent > 0 && hrParent <= warningHours) {
+      const key30 = `${SLA_STATUS_STORAGE_PREFIX}warningMin:${warningMins}:${safeIssueKey}`;
       try {
         const already = await kvs.get(key30);
         if (!already) {
           await kvs.set(key30, 'sent');
           const remainingTimeStr = formatHours(hrParent) + ' left';
-          const template = config.customTemplate || 'Linked ticket {{issueKey}}: 30 minutes remaining. {{assignee}} please review.';
-          const vars30 = { issueKey: safeIssueKey, slaName: parentSla?.sla || 'SLA', remainingTime: remainingTimeStr, status: '30 minutes remaining' };
+          const statusLabel = `${warningMins} minutes remaining`;
+          const template = config.customTemplate || `Linked ticket {{issueKey}}: ${statusLabel}. {{assignee}} please review.`;
+          const vars30 = { issueKey: safeIssueKey, slaName: parentSla?.sla || 'SLA', remainingTime: remainingTimeStr, status: statusLabel };
           for (const linked of linkedIssues) {
             if (linked.error) continue;
             if (config.onlyNotifyIfOpen && linked.statusCategory === 'done') continue;
@@ -1558,31 +1657,54 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
                 body: JSON.stringify(adfBody),
               });
               if (!res.ok) continue;
-              console.log('[SLA Link Inspector] Resolver: 30min warning (parent SLA) posted on linked', linked.key);
+              console.log('[SLA Link Inspector] Resolver: time-remaining warning (parent SLA) posted on linked', linked.key);
             }
-            const plain30 = buildPlainTextMessage(config.customTemplate || null, vars30, mentions30) || `Parent ticket ${safeIssueKey} SLA: 30 minutes remaining.`;
+            const plain30 = buildPlainTextMessage(config.customTemplate || null, vars30, mentions30) || `Parent ticket ${safeIssueKey} SLA: ${statusLabel}.`;
             const slackParams30 = getSlackSendParams(config);
             if (config.notificationSlack && slackParams30) {
               if (slackParams30.method === 'webhook') await sendSlackNotification(slackParams30.webhookUrl, plain30);
               else await sendSlackViaWebApi(slackParams30.token, slackParams30.channelId, plain30);
+            }
+            const dmEnabled30 = config.notificationSlackDm || (Array.isArray(config.notificationSlackDmEmails) && config.notificationSlackDmEmails.length > 0);
+            const dmToken30 = getSlackBotTokenForDm(config);
+            if (dmEnabled30 && dmToken30) {
+              const dmSent30 = new Set();
+              if (config.notificationSlackDm && Array.isArray(mentions30)) {
+                for (const m of mentions30) {
+                  if (!m?.accountId) continue;
+                  const email = await getEmailForJiraAccountId(jira, m.accountId);
+                  if (email && !dmSent30.has(email.toLowerCase())) {
+                    dmSent30.add(email.toLowerCase());
+                    await sendSlackDm(dmToken30, email, plain30);
+                  }
+                }
+              }
+              const extraEmails30 = Array.isArray(config.notificationSlackDmEmails) ? config.notificationSlackDmEmails : [];
+              for (const email of extraEmails30) {
+                const e = (email && String(email).trim()) || '';
+                if (e && !dmSent30.has(e.toLowerCase())) {
+                  dmSent30.add(e.toLowerCase());
+                  await sendSlackDm(dmToken30, e, plain30);
+                }
+              }
             }
             if (config.notificationEmail && config.emailWebhookUrl) {
               await sendEmailWebhook(config.emailWebhookUrl, {
                 event: 'sla_alert',
                 parentIssueKey: safeIssueKey,
                 linkedIssueKey: linked.key,
-                status: '30 minutes remaining',
+                status: statusLabel,
                 slaName: vars30.slaName,
                 remainingTime: remainingTimeStr,
                 recipients: mentions30.map((m) => ({ accountId: m.accountId, displayName: m.displayName || m.name })),
                 message: plain30,
-                subject: `SLA 30 min remaining: ${safeIssueKey}`,
+                subject: `SLA ${statusLabel}: ${safeIssueKey}`,
               });
             }
           }
         }
       } catch (e) {
-        console.error('[SLA Link Inspector] Resolver: 30min error', e.message);
+        console.error('[SLA Link Inspector] Resolver: time-remaining warning error', e.message);
       }
     }
 

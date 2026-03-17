@@ -22,18 +22,31 @@
 
     <section class="config-section">
       <h2>Trigger conditions</h2>
-      <p class="hint">Notify when this (parent) ticket’s SLA becomes:</p>
+      <p class="hint">Notify when the <strong>parent</strong> ticket’s SLA becomes:</p>
       <label class="checkbox-label"><input type="checkbox" id="triggerAtRisk" /> At risk</label>
       <label class="checkbox-label"><input type="checkbox" id="triggerBreached" /> Breached</label>
-      <label class="checkbox-label"><input type="checkbox" id="trigger30MinRemaining" /> 30 minutes remaining</label>
-      <p class="hint small">Uses the same “At Risk” notify list below.</p>
+      <p class="hint small" style="margin-top: 10px;">A <strong>time-remaining warning</strong> (when little time is left) is configured in the next section—it uses the same people as <strong>At Risk</strong>.</p>
       <p class="hint" style="margin-top: 12px;"><label class="checkbox-label"><input type="checkbox" id="onlyNotifyIfOpen" /> Only notify if linked issue is still open</label></p>
       <p class="hint small">When enabled, no alert is sent if the linked ticket is already resolved/done.</p>
     </section>
 
-    <section class="config-section">
-      <h2>When SLA becomes <strong>At Risk</strong> → who gets notified</h2>
-      <p class="hint">Comment is posted on the <strong>linked ticket</strong> (this ticket is the parent with the SLA) and @mentions that ticket’s people:</p>
+    <section class="config-section" id="at-risk-recipients">
+      <h2>At Risk &amp; time-remaining warning → who gets notified</h2>
+      <p class="hint">Comments are posted on each <strong>linked ticket</strong>. The parent ticket is the one that carries the SLA.</p>
+
+      <div class="time-warning-block">
+        <h3 class="subsection-title">Time-remaining warning</h3>
+        <p class="hint small">Optional third trigger. Uses the <strong>same recipients</strong> as At Risk in this section (assignee, reporter, etc.).</p>
+        <p style="margin-top: 10px;">
+          <label class="checkbox-label"><input type="checkbox" id="trigger30MinRemaining" /> Warn when parent SLA has ≤</label>
+          <input type="number" id="warningMinutesRemaining" class="text-input" min="1" max="1440" step="1" placeholder="30" style="width: 72px; margin-left: 8px; vertical-align: middle;" aria-describedby="warningMinutesHint" />
+          <span>minutes left</span>
+        </p>
+        <p id="warningMinutesHint" class="hint small field-hint">Range: 1–1440 (up to 24 hours).</p>
+      </div>
+
+      <h3 class="subsection-title" style="margin-top: 20px;">Recipients for At Risk and the warning above</h3>
+      <p class="hint small">@mention these people on the linked ticket:</p>
       <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyAssignee" /> Assignee</label>
       <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyReporter" /> Reporter</label>
       <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyWatchers" /> Watchers</label>
@@ -73,44 +86,79 @@
       <label class="checkbox-label"><input type="checkbox" id="notificationMention" /> Jira @Mention</label>
       <p class="hint small">Include @mentions in the comment so assignee/reporter/watchers get notified. Uncheck to post without pinging.</p>
       <label class="checkbox-label"><input type="checkbox" id="notificationSlack" /> Slack</label>
-      <p class="hint small" style="margin-left: 24px; margin-top: 4px;">Use either option below (webhook takes precedence if both are set).</p>
-      <p class="hint small" style="margin-left: 24px;"><strong>Option 1 – Incoming webhook:</strong></p>
+      <p class="hint small" style="margin-left: 24px; margin-top: 4px;">Use any combination below (webhook takes precedence for channel posting if set).</p>
+      <p class="hint small" style="margin-left: 24px;"><strong>Option 1 – Incoming webhook (post to one channel):</strong></p>
       <input type="url" id="slackWebhookUrl" class="text-input" placeholder="https://hooks.slack.com/services/..." style="margin-left: 24px; margin-top: 4px;" />
       <p class="hint small" style="margin-left: 24px;">Create at api.slack.com → Your app → Incoming Webhooks → Add New Webhook to Workspace.</p>
-      <p class="hint small" style="margin-left: 24px; margin-top: 10px;"><strong>Option 2 – Web API (Bot token + channel):</strong></p>
+      <p class="hint small" style="margin-left: 24px; margin-top: 10px;"><strong>Option 2 – Post to a channel (Bot token + Channel ID):</strong></p>
       <input type="text" id="slackChannelId" class="text-input" placeholder="Channel ID (e.g. C01234ABCD)" style="margin-left: 24px; margin-top: 4px; max-width: 280px;" />
+      <p class="hint small" style="margin-left: 24px;">Only for posting to a channel. The bot must be in that channel. In Slack: open the channel → channel name → View channel details for the ID.</p>
+      <p class="hint small" style="margin-left: 24px; margin-top: 10px;"><strong>Bot token (used for Option 2 and Option 3):</strong></p>
       <input type="password" id="slackBotToken" class="text-input" placeholder="xoxb-..." style="margin-left: 24px; margin-top: 4px; max-width: 400px;" autocomplete="off" />
       <button type="button" id="clearSlackTokenBtn" class="btn btn-secondary" style="margin-left: 8px; margin-top: 4px;">Clear saved token</button>
-      <p class="hint small" style="margin-left: 24px;">You need a bot token. Either paste it here (from Slack: Your app → OAuth & Permissions → Bot User OAuth Token), or set the <code>SLACK_BOT_TOKEN</code> environment variable in Forge and leave this box blank. Channel ID: in Slack, open the channel → click the channel name → View channel details.</p>
-      <button type="button" id="testSlackBtn" class="btn btn-secondary" style="margin-left: 24px; margin-top: 8px;">Test Slack</button>
-      <label class="checkbox-label"><input type="checkbox" id="notificationEmail" /> Email (webhook)</label>
-      <input type="url" id="emailWebhookUrl" class="text-input" placeholder="https://hooks.zapier.com/... or Make.com webhook" style="margin-left: 24px; margin-top: 4px;" />
-      <p class="hint small">Webhook URL from Zapier, Make.com, or similar. They receive the payload and can send email. Use a Zap/Make scenario to forward to your email.</p>
+      <p class="hint small" style="margin-left: 24px;">From Slack: Your app → OAuth & Permissions → Bot User OAuth Token. Each Jira site saves its own token here.</p>
+      <p class="hint small" style="margin-left: 24px; margin-top: 10px;"><strong>Option 3 – DMs (no channel):</strong></p>
+      <p class="hint small" style="margin-left: 24px;">We send a direct message to each person in your Slack workspace by looking them up by email. They do <strong>not</strong> need to be in any channel—only in the same Slack workspace.</p>
+      <label class="checkbox-label" style="margin-left: 24px;"><input type="checkbox" id="notificationSlackDm" /> DM assignee/reporter/custom-field users (look up by their Jira email in Slack)</label>
+      <p class="hint small" style="margin-left: 24px; margin-top: 4px;">Also DM these emails (comma- or newline-separated):</p>
+      <textarea id="notificationSlackDmEmails" class="text-input" rows="2" placeholder="e.g. lead@company.com" style="margin-left: 24px; margin-top: 4px; max-width: 400px; resize: vertical;"></textarea>
+      <p class="hint small" style="margin-left: 24px;">Requires the Bot token above. In your Slack app add scopes <code>users:read.email</code> and <code>im:write</code>. You can use DMs only (leave Channel ID blank) or use both channel + DMs.</p>
+      <div class="slack-test-row">
+        <button type="button" id="testSlackBtn" class="btn btn-secondary" style="margin-left: 24px; margin-top: 12px;">Test Slack</button>
+      </div>
+
+      <div class="notification-subsection email-webhook-block">
+        <h3 class="subsection-title">Email (via webhook)</h3>
+        <p class="hint small">Send alert data to Zapier, Make.com, or similar so you can forward email yourself.</p>
+        <label class="checkbox-label block-label"><input type="checkbox" id="notificationEmail" /> Enable email webhook</label>
+        <label class="field-label" for="emailWebhookUrl">Webhook URL</label>
+        <input type="url" id="emailWebhookUrl" class="text-input" placeholder="https://hooks.zapier.com/... or Make.com webhook" style="max-width: 100%; margin-top: 6px;" />
+        <p class="hint small field-hint">The webhook receives a JSON payload (issue keys, status, message, etc.). Build a Zap or scenario to send email.</p>
+      </div>
     </section>
 
     <section class="config-section">
-      <h2>Custom message template</h2>
-      <p class="hint">Used for <strong>alerts posted on each linked ticket</strong> when this (parent) ticket’s SLA goes at risk, breached, or 30 minutes remaining (Trigger conditions above). For the “Send SLA to linked tickets” comment, use the template below.</p>
+      <h2>Message templates</h2>
+      <p class="hint">Two templates—pick the right one for how the message is sent:</p>
+      <table class="template-compare" aria-label="When each template is used">
+        <thead>
+          <tr>
+            <th scope="col">Template</th>
+            <th scope="col">Triggered by</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Automated alert</strong></td>
+            <td>SLA status change: At Risk, Breached, or time-remaining warning (comments on linked tickets, optional Slack/email)</td>
+          </tr>
+          <tr>
+            <td><strong>Manual send</strong></td>
+            <td>Clicking <strong>Send SLA to linked tickets</strong> in the issue panel—comment on linked tickets and matching Slack message</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 class="subsection-title" style="margin-top: 24px;">Automated alert template</h3>
+      <p class="hint small">Jira comment text when the parent SLA hits At Risk, Breached, or the time-remaining threshold. Also used for Slack/email for those events.</p>
       <p class="hint">Variables:</p>
       <ul class="vars-list">
-        <li><code>{{issueKey}}</code> – the parent issue key (the ticket that has the SLA)</li>
+        <li><code>{{issueKey}}</code> – parent issue key (SLA ticket)</li>
         <li><code>{{slaName}}</code> – SLA field name</li>
         <li><code>{{remainingTime}}</code> – e.g. “9d left” or “2h overdue”</li>
-        <li><code>{{status}}</code> – at risk / breached / 30 minutes remaining</li>
-        <li><code>{{assignee}}</code> – @mention(s) from the linked ticket (assignee, reporter, watchers, custom fields as configured)</li>
+        <li><code>{{status}}</code> – at risk / breached / X minutes remaining</li>
+        <li><code>{{assignee}}</code> – @mentions from the linked ticket per your At Risk / Breached settings</li>
       </ul>
       <textarea id="customTemplate" class="template-input" rows="10" placeholder="Leave empty to use the default message."></textarea>
-    </section>
 
-    <section class="config-section">
-      <h2>Send SLA Alert to Linked Tickets message template</h2>
-      <p class="hint">Used for the comment posted on <strong>linked tickets</strong> when you click “Send SLA to linked tickets” in the Send SLA Alert to Linked Tickets panel, and for the same message sent to Slack. Leave empty for the default.</p>
+      <h3 class="subsection-title" style="margin-top: 28px;">Manual send template</h3>
+      <p class="hint small">Comment on linked tickets when you use the panel action. Same wording goes to Slack if Slack is enabled for that flow.</p>
       <p class="hint">Variables:</p>
       <ul class="vars-list">
-        <li><code>{{issueKey}}</code> – the current issue key (the one whose SLA you’re relaying)</li>
+        <li><code>{{issueKey}}</code> – parent issue whose SLA you’re relaying</li>
         <li><code>{{slaStatus}}</code> – At-Risk / Breached / In SLA range</li>
         <li><code>{{expiryDate}}</code> – formatted expiration date</li>
-        <li><code>{{assignee}}</code> – @mention(s) of the linked ticket’s assignee/reporter</li>
+        <li><code>{{assignee}}</code> – @mentions on the linked ticket (assignee/reporter)</li>
       </ul>
       <p class="hint small">Example:</p>
       <pre class="template-example" aria-hidden="true">Linked ticket {{issueKey}} SLA is now {{slaStatus}}.
