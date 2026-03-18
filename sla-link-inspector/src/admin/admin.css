@@ -544,10 +544,23 @@ h1 {
   color: #42526e;
 }
 
-.time-warning-row .time-left-days-input {
+.time-warning-row .time-left-amount-input {
   width: 88px;
   margin-top: 0 !important;
   max-width: none;
+}
+
+.time-warning-row .time-left-unit-select {
+  width: auto;
+  min-width: 110px;
+  margin-top: 0 !important;
+  max-width: none;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background: #fff;
+  color: #172b4d;
 }
 
 .btn-remove-time-warning {

@@ -42,7 +42,8 @@ const DEFAULT_ADMIN_CONFIG = {
   triggerBreached: true,
   /** One-time linked-ticket alerts when parent SLA time left ≤ each threshold (days). Uses 3a recipients. */
   timeLeftWarningsEnabled: false,
-  timeLeftWarningThresholdsDays: [],
+  /** { amount: number, unit: 'days'|'hours'|'minutes' }[] — warn when parent SLA has ≤ this time left */
+  timeLeftWarningThresholds: [],
   // At Risk → who to notify (parent issue's users)
   atRiskNotifyAssignee: true,
   atRiskNotifyReporter: false,
@@ -95,16 +96,22 @@ The date of expiration: {{expiryDate}}.
 
 function migrateTimeLeftWarningsConfig(cfg) {
   const c = { ...cfg };
-  if (!Array.isArray(c.timeLeftWarningThresholdsDays)) c.timeLeftWarningThresholdsDays = [];
-  const hasThresholds = c.timeLeftWarningThresholdsDays.length > 0;
-  if (!hasThresholds && c.trigger30MinRemaining && c.warningMinutesRemaining != null) {
+  if (!Array.isArray(c.timeLeftWarningThresholds)) c.timeLeftWarningThresholds = [];
+  if (c.timeLeftWarningThresholds.length === 0 && Array.isArray(c.timeLeftWarningThresholdsDays) && c.timeLeftWarningThresholdsDays.length > 0) {
+    c.timeLeftWarningThresholds = c.timeLeftWarningThresholdsDays
+      .map((d) => ({ amount: Number(d), unit: 'days' }))
+      .filter((x) => Number.isFinite(x.amount) && x.amount > 0);
+  }
+  if (c.timeLeftWarningThresholds.length === 0 && c.trigger30MinRemaining && c.warningMinutesRemaining != null) {
     const mins = Math.max(1, Math.min(1440, Number(c.warningMinutesRemaining) || 30));
-    const days = Math.max(1 / 24, mins / 1440);
-    c.timeLeftWarningThresholdsDays = [Math.round(days * 1000) / 1000];
+    c.timeLeftWarningThresholds = [{ amount: mins, unit: 'minutes' }];
     c.timeLeftWarningsEnabled = true;
   }
+  const hasThresholds = c.timeLeftWarningThresholds.length > 0;
   if (c.timeLeftWarningsEnabled == null) {
-    c.timeLeftWarningsEnabled = Boolean(c.trigger30MinRemaining && c.timeLeftWarningThresholdsDays.length > 0);
+    c.timeLeftWarningsEnabled = Boolean(
+      (c.trigger30MinRemaining && hasThresholds) || hasThresholds
+    );
   }
   return c;
 }
@@ -121,30 +128,62 @@ async function getAdminConfig() {
   return migrateTimeLeftWarningsConfig({ ...DEFAULT_ADMIN_CONFIG });
 }
 
-function normalizeTimeLeftThresholdsDays(arr) {
+const TIME_LEFT_UNITS = new Set(['days', 'hours', 'minutes']);
+
+/**
+ * Parse threshold entry → hours. Returns { hours, amount, unit } or null.
+ */
+function parseTimeLeftThresholdEntry(entry) {
+  const unit =
+    entry && TIME_LEFT_UNITS.has(String(entry.unit)) ? String(entry.unit) : 'days';
+  const amount = typeof entry?.amount === 'number' ? entry.amount : parseFloat(entry?.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  let hours = null;
+  if (unit === 'days') {
+    if (amount > 365 || amount < 0.01) return null;
+    hours = amount * 24;
+  } else if (unit === 'hours') {
+    if (amount > 8760 || amount < 1 / 60) return null;
+    hours = amount;
+  } else {
+    if (amount > 525600 || amount < 1) return null;
+    hours = amount / 60;
+  }
+  if (hours <= 0 || hours > 8760) return null;
+  return { hours: Math.round(hours * 1e8) / 1e8, amount, unit };
+}
+
+function normalizeTimeLeftWarningThresholds(arr) {
   if (!Array.isArray(arr)) return [];
   const seen = new Set();
   const out = [];
-  for (const x of arr) {
-    const n = typeof x === 'number' ? x : parseFloat(x);
-    if (!Number.isFinite(n) || n <= 0 || n > 365) continue;
-    const k = Math.round(n * 10000) / 10000;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(k);
+  for (const e of arr) {
+    const p = parseTimeLeftThresholdEntry(e);
+    if (!p || seen.has(p.hours)) continue;
+    seen.add(p.hours);
+    let amount = p.amount;
+    if (p.unit === 'minutes') amount = Math.round(amount);
+    if (p.unit === 'days') amount = Math.round(amount * 10000) / 10000;
+    if (p.unit === 'hours') amount = Math.round(amount * 1000) / 1000;
+    out.push({ hours: p.hours, amount, unit: p.unit });
   }
-  return out.sort((a, b) => a - b);
+  return out.sort((a, b) => a.hours - b.hours);
 }
 
-function timeLeftWarningStatusLabel(days) {
-  if (!Number.isFinite(days) || days <= 0) return 'threshold';
-  if (days >= 1) {
-    const r = Math.round(days * 100) / 100;
-    const s = r % 1 === 0 ? String(Math.floor(r)) : String(r);
-    return `${s} day${Number(s) === 1 ? '' : 's'} left`;
+function timeLeftWarningStatusLabel(amount, unit) {
+  if (!Number.isFinite(amount) || amount <= 0) return 'threshold';
+  if (unit === 'minutes') {
+    const m = Math.round(amount);
+    return `${m} minute${m === 1 ? '' : 's'} left`;
   }
-  const h = Math.max(1, Math.round(days * 24));
-  return `${h} hour${h === 1 ? '' : 's'} left`;
+  if (unit === 'hours') {
+    const h = amount % 1 === 0 ? Math.floor(amount) : Math.round(amount * 100) / 100;
+    const s = String(h);
+    return `${s} hour${Number(h) === 1 ? '' : 's'} left`;
+  }
+  const r = Math.round(amount * 100) / 100;
+  const s = r % 1 === 0 ? String(Math.floor(r)) : String(r);
+  return `${s} day${Number(s) === 1 ? '' : 's'} left`;
 }
 
 /**
@@ -483,8 +522,11 @@ resolver.define('setAdminConfig', async ({ payload }) => {
       toStore[key] = value.map((s) => String(s).trim()).filter(Boolean);
     } else if (key === 'notificationSlackDmEmails' && Array.isArray(value)) {
       toStore[key] = value.map((s) => String(s).trim()).filter(Boolean);
-    } else if (key === 'timeLeftWarningThresholdsDays' && Array.isArray(value)) {
-      toStore[key] = normalizeTimeLeftThresholdsDays(value);
+    } else if (key === 'timeLeftWarningThresholds' && Array.isArray(value)) {
+      toStore[key] = normalizeTimeLeftWarningThresholds(value).map((t) => ({
+        amount: t.amount,
+        unit: t.unit,
+      }));
     } else if (typeof value === 'boolean') toStore[key] = value;
   }
   try {
@@ -492,6 +534,7 @@ resolver.define('setAdminConfig', async ({ payload }) => {
     const next = migrateTimeLeftWarningsConfig({ ...current, ...toStore });
     delete next.trigger30MinRemaining;
     delete next.warningMinutesRemaining;
+    delete next.timeLeftWarningThresholdsDays;
     await kvs.set(ADMIN_CONFIG_KEY, next);
     return { ok: true };
   } catch (e) {
@@ -1932,20 +1975,20 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
 
     const config = await getAdminConfig();
     const hrParent = parentSla?.hoursRemaining;
-    const thresholds = normalizeTimeLeftThresholdsDays(config.timeLeftWarningThresholdsDays);
+    const thresholds = normalizeTimeLeftWarningThresholds(config.timeLeftWarningThresholds);
     if (config.timeLeftWarningsEnabled && thresholds.length > 0 && hrParent != null && hrParent > 0) {
       const slaName = parentSla?.label || parentSla?.sla || 'SLA';
-      for (const days of thresholds) {
-        const maxHours = days * 24;
+      for (const th of thresholds) {
+        const maxHours = th.hours;
         if (hrParent > maxHours) continue;
-        const daysKey = String(Math.round(days * 10000) / 10000);
-        const warnKvsKey = `${SLA_STATUS_STORAGE_PREFIX}warningDays:${daysKey}:${safeIssueKey}`;
+        const hKey = String(th.hours).replace(/\./g, 'p');
+        const warnKvsKey = `${SLA_STATUS_STORAGE_PREFIX}warningTh:${hKey}:${safeIssueKey}`;
         try {
           const already = await kvs.get(warnKvsKey);
           if (already) continue;
           await kvs.set(warnKvsKey, 'sent');
           const remainingTimeStr = formatHours(hrParent) + ' left';
-          const statusLabel = `≤${timeLeftWarningStatusLabel(days)} (warning)`;
+          const statusLabel = `≤${timeLeftWarningStatusLabel(th.amount, th.unit)} (warning)`;
           const template =
             config.customTemplate || `Linked ticket {{issueKey}}: parent SLA ${statusLabel}. {{assignee}} please review.`;
           const varsWarn = {
@@ -1968,12 +2011,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
                 body: JSON.stringify(adfBody),
               });
               if (!res.ok) continue;
-              console.log(
-                '[SLA Link Inspector] Resolver: time-left warning',
-                daysKey,
-                'd posted on linked',
-                linked.key
-              );
+              console.log('[SLA Link Inspector] Resolver: time-left warning', hKey, 'posted on linked', linked.key);
             }
             const plainW =
               buildPlainTextMessage(config.customTemplate || null, varsWarn, mentionsW) ||
@@ -2025,7 +2063,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
             }
           }
         } catch (e) {
-          console.error('[SLA Link Inspector] Resolver: time-left warning error', daysKey, e.message);
+          console.error('[SLA Link Inspector] Resolver: time-left warning error', hKey, e.message);
         }
       }
     }

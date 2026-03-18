@@ -37,51 +37,113 @@ let isLicensed = true;
 
 const timeLeftWarningsRowsEl = document.getElementById('timeLeftWarningsRows');
 
-function createTimeLeftWarningRow(daysValue) {
+function updateTimeLeftRowConstraints(row) {
+  const inp = row.querySelector('.time-left-amount-input');
+  const sel = row.querySelector('.time-left-unit-select');
+  if (!inp || !sel) return;
+  const u = sel.value;
+  if (u === 'minutes') {
+    inp.min = 1;
+    inp.max = 525600;
+    inp.step = 1;
+  } else if (u === 'hours') {
+    inp.min = 0.02;
+    inp.max = 8760;
+    inp.step = 'any';
+  } else {
+    inp.min = 0.01;
+    inp.max = 365;
+    inp.step = 'any';
+  }
+}
+
+function syncTimeLeftWarningRemoveButtons() {
+  if (!timeLeftWarningsRowsEl) return;
+  const rows = timeLeftWarningsRowsEl.querySelectorAll('.time-warning-row');
+  rows.forEach((row, i) => {
+    const existing = row.querySelector('.btn-remove-time-warning');
+    if (i === 0) {
+      if (existing) existing.remove();
+    } else if (!existing) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-secondary btn-remove-time-warning';
+      btn.textContent = 'Remove';
+      btn.addEventListener('click', () => {
+        row.remove();
+        syncTimeLeftWarningRemoveButtons();
+      });
+      row.appendChild(btn);
+    }
+  });
+}
+
+function createTimeLeftWarningRow(amount, unit, isAdditional) {
   const row = document.createElement('div');
   row.className = 'time-warning-row';
-  const v = Number.isFinite(Number(daysValue)) && Number(daysValue) > 0 ? Number(daysValue) : 1;
+  const u = ['minutes', 'hours', 'days'].includes(unit) ? unit : 'days';
+  let a = Number(amount);
+  if (!Number.isFinite(a) || a <= 0) {
+    a = u === 'minutes' ? 60 : u === 'hours' ? 12 : 1;
+  }
+  const removeBtnHtml = isAdditional
+    ? '<button type="button" class="btn btn-secondary btn-remove-time-warning">Remove</button>'
+    : '';
   row.innerHTML = `
     <span class="time-warning-row-label">Warn when ≤</span>
-    <input type="number" class="text-input time-left-days-input" min="0.05" max="365" step="any" value="${v}" />
-    <span class="time-warning-row-suffix">days left</span>
-    <button type="button" class="btn btn-secondary btn-remove-time-warning">Remove</button>
+    <input type="number" class="text-input time-left-amount-input" />
+    <select class="text-input time-left-unit-select" aria-label="Time unit">
+      <option value="minutes">minutes</option>
+      <option value="hours">hours</option>
+      <option value="days">days</option>
+    </select>
+    <span class="time-warning-row-suffix">left</span>
+    ${removeBtnHtml}
   `;
-  row.querySelector('.btn-remove-time-warning').addEventListener('click', () => {
-    if (timeLeftWarningsRowsEl && timeLeftWarningsRowsEl.children.length <= 1) return;
-    row.remove();
-  });
+  const inp = row.querySelector('.time-left-amount-input');
+  const sel = row.querySelector('.time-left-unit-select');
+  inp.value = u === 'minutes' ? String(Math.round(a)) : String(a);
+  sel.value = u;
+  updateTimeLeftRowConstraints(row);
+  sel.addEventListener('change', () => updateTimeLeftRowConstraints(row));
+  const removeBtn = row.querySelector('.btn-remove-time-warning');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', () => {
+      row.remove();
+      syncTimeLeftWarningRemoveButtons();
+    });
+  }
   return row;
 }
 
 function renderTimeLeftWarningRows(thresholds) {
   if (!timeLeftWarningsRowsEl) return;
   timeLeftWarningsRowsEl.innerHTML = '';
-  const list = Array.isArray(thresholds) && thresholds.length > 0 ? thresholds : [1];
-  list.forEach((d) => {
-    const v = parseFloat(d);
-    const val = Number.isFinite(v) && v >= 0.05 && v <= 365 ? v : 1;
-    timeLeftWarningsRowsEl.appendChild(createTimeLeftWarningRow(val));
+  const list = Array.isArray(thresholds) && thresholds.length > 0 ? thresholds : [{ amount: 1, unit: 'days' }];
+  list.forEach((t, index) => {
+    const amount = t.amount != null ? t.amount : 1;
+    const unit = t.unit || 'days';
+    timeLeftWarningsRowsEl.appendChild(createTimeLeftWarningRow(amount, unit, index > 0));
   });
 }
 
-function collectTimeLeftWarningDays() {
+function collectTimeLeftWarningThresholds() {
   if (!timeLeftWarningsRowsEl) return [];
-  const inputs = timeLeftWarningsRowsEl.querySelectorAll('.time-left-days-input');
+  const rows = timeLeftWarningsRowsEl.querySelectorAll('.time-warning-row');
   const out = [];
-  inputs.forEach((inp) => {
-    const v = parseFloat(inp.value);
-    if (Number.isFinite(v) && v >= 0.05 && v <= 365) {
-      out.push(Math.round(v * 10000) / 10000);
-    }
+  rows.forEach((row) => {
+    const amount = parseFloat(row.querySelector('.time-left-amount-input').value);
+    const unit = row.querySelector('.time-left-unit-select').value;
+    if (!Number.isFinite(amount)) return;
+    out.push({ amount, unit });
   });
-  return [...new Set(out)].sort((a, b) => a - b);
+  return out;
 }
 
 function buildAdminSavePayload() {
   const payload = finalizeAdminPayload(formToPayload());
   payload.timeLeftWarningsEnabled = Boolean(document.getElementById('timeLeftWarningsEnabled')?.checked);
-  payload.timeLeftWarningThresholdsDays = collectTimeLeftWarningDays();
+  payload.timeLeftWarningThresholds = collectTimeLeftWarningThresholds();
   return payload;
 }
 
@@ -221,7 +283,7 @@ async function load() {
     const testSlackBtnEl = document.getElementById('testSlackBtn');
     if (testSlackBtnEl) testSlackBtnEl.disabled = !isLicensed;
     payloadToForm(config);
-    renderTimeLeftWarningRows(config.timeLeftWarningThresholdsDays);
+    renderTimeLeftWarningRows(config.timeLeftWarningThresholds);
     const tle = document.getElementById('timeLeftWarningsEnabled');
     if (tle) tle.checked = Boolean(config.timeLeftWarningsEnabled);
     updateSlackVisibility();
@@ -233,14 +295,19 @@ async function load() {
 
 document.getElementById('addTimeLeftWarningBtn')?.addEventListener('click', () => {
   if (!timeLeftWarningsRowsEl) return;
-  const inputs = timeLeftWarningsRowsEl.querySelectorAll('.time-left-days-input');
-  let last = 1;
-  if (inputs.length) {
-    const p = parseFloat(inputs[inputs.length - 1].value);
-    if (Number.isFinite(p) && p > 0.1) last = p;
+  const rows = timeLeftWarningsRowsEl.querySelectorAll('.time-warning-row');
+  let amount = 1;
+  let unit = 'days';
+  if (rows.length) {
+    const last = rows[rows.length - 1];
+    unit = last.querySelector('.time-left-unit-select').value;
+    const a = parseFloat(last.querySelector('.time-left-amount-input').value);
+    if (Number.isFinite(a) && a > 0) {
+      if (unit === 'minutes') amount = Math.max(1, Math.round(a / 2));
+      else amount = Math.max(unit === 'days' ? 0.01 : 0.02, Math.round((a / 2) * 1000) / 1000);
+    }
   }
-  const next = Math.max(0.05, Math.min(365, last / 2));
-  timeLeftWarningsRowsEl.appendChild(createTimeLeftWarningRow(Math.round(next * 1000) / 1000));
+  timeLeftWarningsRowsEl.appendChild(createTimeLeftWarningRow(amount, unit, true));
 });
 
 async function save() {
