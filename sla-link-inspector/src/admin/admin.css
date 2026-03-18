@@ -15,8 +15,302 @@ h1 {
 
 .subtitle {
   color: #6b778c;
+  margin: 0 0 16px 0;
+  font-size: 13px;
+}
+
+.mental-model {
+  background: #f4f5f7;
+  border: 1px solid #dfe1e6;
+  border-left: 4px solid #0052cc;
+  border-radius: 6px;
+  padding: 12px 14px 12px 16px;
   margin: 0 0 24px 0;
   font-size: 13px;
+  color: #42526e;
+}
+
+.mental-model strong {
+  color: #253858;
+}
+
+.mental-model-list {
+  margin: 8px 0 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #6b778c;
+}
+
+.mental-model-list li {
+  margin: 4px 0;
+}
+
+.ia-h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ia-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #0052cc;
+  background: #deebff;
+  border-radius: 4px;
+}
+
+.ia-lead {
+  margin-bottom: 14px !important;
+  font-size: 13px;
+}
+
+.tight-lead {
+  margin-bottom: 10px !important;
+}
+
+.label-tight {
+  margin: 12px 0 6px 0 !important;
+  font-size: 13px;
+  font-weight: 500;
+  color: #42526e;
+}
+
+.deemph {
+  color: #97a0af !important;
+}
+
+.recipients-bundle {
+  margin-bottom: 28px;
+  border: 1px solid #dfe1e6;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.recipients-bundle-intro {
+  padding: 12px 16px 10px;
+  background: linear-gradient(180deg, #f4f5f7 0%, #fafbfc 100%);
+  border-bottom: 1px solid #ebecf0;
+}
+
+.recipients-bundle-intro strong {
+  font-size: 0.95rem;
+  color: #253858;
+}
+
+.bundle-intro-text {
+  margin: 6px 0 0 0 !important;
+  line-height: 1.4;
+}
+
+.recipients-bundle .config-section {
+  margin-bottom: 0 !important;
+  padding-bottom: 16px !important;
+  border-bottom: none !important;
+}
+
+.recipients-split-last {
+  border-top: 1px dashed #c1c7d0;
+  padding-top: 16px !important;
+}
+
+.label-people {
+  margin-top: 10px !important;
+}
+
+.hint-fields-tight {
+  margin-top: 8px !important;
+  margin-bottom: 4px !important;
+}
+
+.slack-lead {
+  margin-bottom: 12px !important;
+}
+
+.slack-input-tight {
+  margin-top: 6px !important;
+}
+
+.slack-precedence {
+  font-size: 12px;
+  margin: 10px 0 6px 2px;
+  padding: 8px 10px;
+  background: #fff8e6;
+  border-left: 3px solid #ffab00;
+  border-radius: 0 4px 4px 0;
+}
+
+.slack-card-dm {
+  margin-top: 4px;
+}
+
+.slack-bot-setup-host {
+  margin-bottom: 24px;
+}
+
+.slack-bot-setup-host:not([hidden]) {
+  padding: 12px 0 0 14px;
+  border-left: 3px solid #deebff;
+  margin-left: 2px;
+}
+
+.slack-bot-skipped {
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+  padding: 10px 12px;
+  background: #fafbfc;
+  border-radius: 6px;
+  border: 1px solid #ebecf0;
+}
+
+.ia-slack-bot-step {
+  margin-bottom: 24px !important;
+  padding-bottom: 18px !important;
+  border-bottom: 1px solid #dfe1e6;
+}
+
+.slack-bot-lead {
+  margin-bottom: 10px !important;
+}
+
+.token-label-tight {
+  margin-top: 4px !important;
+  margin-bottom: 2px !important;
+}
+
+.slack-token-input {
+  margin-top: 4px !important;
+  max-width: 400px;
+  display: block;
+}
+
+.token-helper-tight {
+  margin-top: 6px !important;
+  margin-bottom: 4px !important;
+}
+
+.btn-clear-token {
+  margin-top: 6px !important;
+  margin-left: 0 !important;
+}
+
+.token-oauth-details {
+  margin-top: 8px !important;
+  margin-bottom: 0 !important;
+}
+
+.admin-details {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.admin-details summary {
+  cursor: pointer;
+  color: #97a0af;
+  outline: none;
+}
+
+.admin-details summary:hover {
+  color: #6b778c;
+}
+
+.admin-details-body {
+  margin: 6px 0 0 0 !important;
+  padding-left: 2px;
+  max-width: 520px;
+}
+
+.test-actions {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #ebecf0;
+}
+
+.test-actions-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #42526e;
+  margin: 0 0 6px 0;
+}
+
+.test-actions-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.test-actions-micro {
+  margin: 0 !important;
+  line-height: 1.4;
+  max-width: 520px;
+}
+
+.ia-nested {
+  margin-top: 16px;
+}
+
+.delivery-block {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #ebecf0;
+}
+
+.delivery-block:first-of-type {
+  margin-top: 8px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.delivery-block-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 10px 0;
+  color: #253858;
+}
+
+.slack-card-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0 0 6px 0;
+  color: #42526e;
+}
+
+.compact-vars {
+  font-size: 12px;
+}
+
+.compact-vars li {
+  margin: 4px 0;
+}
+
+.message-content-final {
+  margin-top: 8px;
+  padding-top: 28px;
+  border-top: 2px solid #c1c7d0;
+  background: linear-gradient(to bottom, #fafbfc 0%, #fff 48px);
+  border-radius: 8px 8px 0 0;
+  padding-left: 4px;
+  padding-right: 4px;
+  margin-left: -4px;
+  margin-right: -4px;
+}
+
+.ia-credentials .slack-test-row {
+  margin-top: 16px;
+}
+
+.ia-test-row .slack-helper-muted {
+  margin-top: 0;
+  margin-bottom: 0;
 }
 
 .license-banner {
@@ -140,6 +434,24 @@ h1 {
   margin-right: 8px;
 }
 
+.checkbox-rp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+}
+
+.checkbox-rp .checkbox-rp-title {
+  font-weight: 500;
+  color: #253858;
+}
+
+.checkbox-rp .checkbox-rp-hint {
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 2px;
+}
+
 .checkbox-label.block-label {
   margin-top: 12px;
   margin-bottom: 4px;
@@ -177,9 +489,20 @@ h1 {
   margin-bottom: 0;
 }
 
+.dm-global-hint {
+  margin-top: 8px !important;
+  margin-bottom: 0 !important;
+  max-width: 520px;
+  line-height: 1.45;
+}
+
 .field-hint {
   margin-top: 6px !important;
   margin-bottom: 0 !important;
+}
+
+.template-tip-separator {
+  padding-bottom: 20px;
 }
 
 .notification-subsection.email-webhook-block {
@@ -193,8 +516,19 @@ h1 {
   clear: both;
 }
 
+.slack-helper-muted {
+  color: #6b6b6b;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.slack-test-row .slack-helper-muted {
+  margin-top: 10px;
+  margin-bottom: -2px;
+}
+
 .slack-options {
-  margin-left: 24px;
+  margin-left: 0;
   margin-top: 8px;
   max-width: 640px;
 }

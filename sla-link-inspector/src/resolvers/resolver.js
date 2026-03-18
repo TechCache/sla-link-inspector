@@ -46,10 +46,12 @@ const DEFAULT_ADMIN_CONFIG = {
   atRiskNotifyAssignee: true,
   atRiskNotifyReporter: false,
   atRiskNotifyWatchers: false,
+  atRiskNotifyRequestParticipants: false,
   // Breached → who to notify (e.g. assignee + team lead / reporter)
   breachedNotifyAssignee: true,
   breachedNotifyReporter: true,
   breachedNotifyWatchers: false,
+  breachedNotifyRequestParticipants: false,
   // Legacy (kept for backward compat; per-trigger above take precedence)
   notifyAssignee: true,
   notifyReporter: false,
@@ -309,6 +311,49 @@ function formatHours(hours) {
 }
 
 /**
+ * Issue panel SLA summary (parent ticket). variant: at_risk | breached | healthy | unknown
+ */
+function buildPanelSlaSummary(slaField, sla) {
+  const hasField = Boolean(slaField?.id);
+  const st = sla?.status ?? 'none';
+  const hr = sla?.hoursRemaining;
+  const noSlaData = st === 'none' && (hr == null || Number.isNaN(hr));
+
+  if (!hasField && noSlaData) {
+    return {
+      variant: 'unknown',
+      line: 'SLA Status: Not detected',
+      configureHint: 'Check SLA field settings in Configure app.',
+    };
+  }
+
+  if (st === 'breached' || (typeof hr === 'number' && hr < 0)) {
+    const overdue = typeof hr === 'number' && hr < 0 ? formatHours(Math.abs(hr)) : '0m';
+    return { variant: 'breached', line: `SLA Status: Breached · ${overdue} overdue`, configureHint: null };
+  }
+
+  if (st === 'at_risk') {
+    const rem = typeof hr === 'number' && hr > 0 ? formatHours(hr) : '—';
+    return { variant: 'at_risk', line: `SLA Status: At Risk · ${rem} remaining`, configureHint: null };
+  }
+
+  if (st === 'within' || (typeof hr === 'number' && hr > 0)) {
+    const rem = typeof hr === 'number' ? formatHours(hr) : '—';
+    return { variant: 'healthy', line: `SLA Status: On Track · ${rem} remaining`, configureHint: null };
+  }
+
+  if (noSlaData) {
+    return {
+      variant: 'unknown',
+      line: 'SLA Status: Not detected',
+      configureHint: hasField ? null : 'Check SLA field settings in Configure app.',
+    };
+  }
+
+  return { variant: 'unknown', line: 'SLA Status: Not detected', configureHint: null };
+}
+
+/**
  * Try to parse "Xh left", "within 72h", "Xh overdue" from label string for color logic.
  */
 function parseHoursFromString(str) {
@@ -541,12 +586,12 @@ resolver.define('searchJiraUsers', async ({ payload }) => {
 });
 
 /**
- * Status label for "Send to linked tickets" message: At-Risk, Breached, In SLA range.
+ * Status label for "Send to linked tickets" message: At-Risk, Breached, in range.
  */
 function sendToLinkedStatusLabel(slaStatus) {
   if (slaStatus === 'at_risk') return 'At-Risk';
   if (slaStatus === 'breached') return 'Breached';
-  return 'in SLA range';
+  return 'in range';
 }
 
 /**
@@ -855,13 +900,50 @@ async function resolveNotifyFromFieldIds(jira, namesOrIds) {
   return result;
 }
 
+/** Cached Jira field id for JSM "Request participants" (null = not found). */
+const _rpFieldCacheUnset = {};
+let _cachedRequestParticipantsFieldId = _rpFieldCacheUnset;
+async function resolveRequestParticipantsFieldId(jira) {
+  if (_cachedRequestParticipantsFieldId !== _rpFieldCacheUnset) {
+    return _cachedRequestParticipantsFieldId;
+  }
+  _cachedRequestParticipantsFieldId = null;
+  try {
+    const res = await jira(route`/rest/api/3/field`);
+    if (!res.ok) return null;
+    const fields = await res.json();
+    const list = fields || [];
+    const exact = list.find((f) => f && f.name && String(f.name).trim().toLowerCase() === 'request participants');
+    const fuzzy = exact || list.find((f) => f && f.name && /request participant/i.test(String(f.name)));
+    if (fuzzy?.id) _cachedRequestParticipantsFieldId = fuzzy.id;
+    return _cachedRequestParticipantsFieldId;
+  } catch (e) {
+    console.error('[SLA Link Inspector] resolveRequestParticipantsFieldId', e?.message);
+  }
+  return null;
+}
+
 /**
- * Build mention-people (assignee, reporter, watchers, fieldUsers) from a single issue.
- * Used so we @mention the linked ticket's people when posting the alert on the parent.
+ * Build mention-people (assignee, reporter, watchers, request participants) from a single issue.
  */
 async function buildMentionPeopleFromIssue(jira, issueKey, config, resolvedNotifyFields) {
-  const out = { assignee: null, reporter: null, watchers: [], fieldUsers: {} };
-  const fieldIds = ['assignee', 'reporter', ...(resolvedNotifyFields ? resolvedNotifyFields.values() : [])];
+  const out = {
+    assignee: null,
+    reporter: null,
+    watchers: [],
+    fieldUsers: {},
+    requestParticipants: [],
+  };
+  const needRp =
+    config &&
+    (config.atRiskNotifyRequestParticipants || config.breachedNotifyRequestParticipants);
+  let rpFieldId = null;
+  if (needRp) {
+    rpFieldId = await resolveRequestParticipantsFieldId(jira);
+  }
+  const fromMap = resolvedNotifyFields && resolvedNotifyFields.size > 0 ? [...resolvedNotifyFields.values()] : [];
+  const fieldIds = ['assignee', 'reporter', ...fromMap];
+  if (rpFieldId) fieldIds.push(rpFieldId);
   const fieldsQuery = [...new Set(fieldIds)].join(',');
   try {
     const res = await jira(route`/rest/api/3/issue/${issueKey}?fields=${fieldsQuery}`);
@@ -871,11 +953,14 @@ async function buildMentionPeopleFromIssue(jira, issueKey, config, resolvedNotif
     const reporter = issue.fields?.reporter;
     out.assignee = assignee ? { accountId: assignee.accountId, displayName: assignee.displayName || assignee.name } : null;
     out.reporter = reporter ? { accountId: reporter.accountId, displayName: reporter.displayName || reporter.name } : null;
-    if (resolvedNotifyFields) {
+    if (resolvedNotifyFields && resolvedNotifyFields.size > 0) {
       for (const [userInput, fieldId] of resolvedNotifyFields) {
         const val = issue.fields?.[fieldId];
         out.fieldUsers[userInput] = extractUsersFromFieldValue(val);
       }
+    }
+    if (rpFieldId && issue.fields?.[rpFieldId] != null) {
+      out.requestParticipants = extractUsersFromFieldValue(issue.fields[rpFieldId]);
     }
     if (config && (config.atRiskNotifyWatchers || config.breachedNotifyWatchers)) {
       try {
@@ -916,11 +1001,13 @@ function buildMentionsForTrigger(config, trigger, parentPeople) {
   const reporter = parentPeople?.reporter;
   const watchers = Array.isArray(parentPeople?.watchers) ? parentPeople.watchers : [];
   const fieldUsers = parentPeople?.fieldUsers || {};
+  const rp = Array.isArray(parentPeople?.requestParticipants) ? parentPeople.requestParticipants : [];
   const isAtRisk = trigger === 'at_risk';
   if (isAtRisk) {
     if (config.atRiskNotifyAssignee && assignee?.accountId) list.push({ accountId: assignee.accountId, displayName: assignee.displayName || assignee.name });
     if (config.atRiskNotifyReporter && reporter?.accountId) list.push({ accountId: reporter.accountId, displayName: reporter.displayName || reporter.name });
     if (config.atRiskNotifyWatchers) list.push(...watchers.filter((w) => w?.accountId));
+    if (config.atRiskNotifyRequestParticipants) list.push(...rp.filter((u) => u?.accountId));
     const extra = Array.isArray(config.atRiskAdditionalMentions) ? config.atRiskAdditionalMentions : [];
     list.push(...extra.filter((m) => m && m.accountId));
     const fromFields = Array.isArray(config.atRiskNotifyFromFields) ? config.atRiskNotifyFromFields : [];
@@ -931,6 +1018,7 @@ function buildMentionsForTrigger(config, trigger, parentPeople) {
     if (config.breachedNotifyAssignee && assignee?.accountId) list.push({ accountId: assignee.accountId, displayName: assignee.displayName || assignee.name });
     if (config.breachedNotifyReporter && reporter?.accountId) list.push({ accountId: reporter.accountId, displayName: reporter.displayName || reporter.name });
     if (config.breachedNotifyWatchers) list.push(...watchers.filter((w) => w?.accountId));
+    if (config.breachedNotifyRequestParticipants) list.push(...rp.filter((u) => u?.accountId));
     const extra = Array.isArray(config.breachedAdditionalMentions) ? config.breachedAdditionalMentions : [];
     list.push(...extra.filter((m) => m && m.accountId));
     const fromFields = Array.isArray(config.breachedNotifyFromFields) ? config.breachedNotifyFromFields : [];
@@ -1352,8 +1440,7 @@ resolver.define('testFireSlaComment', async ({ payload }) => {
     if (slaField?.id) parentFieldsParam.push(slaField.id);
     const parentFieldsQuery = parentFieldsParam.join(',');
     const cfg = await getAdminConfig();
-    const notifyFieldInputs = [...(cfg.atRiskNotifyFromFields || []), ...(cfg.breachedNotifyFromFields || [])];
-    const resolvedNotifyFields = await resolveNotifyFromFieldIds(jira, notifyFieldInputs);
+    const resolvedNotifyFields = new Map();
     const [parentRes, linkedRes] = await Promise.all([
       jira(route`/rest/api/3/issue/${parentIssueKey}?fields=${parentFieldsQuery}`),
       jira(route`/rest/api/3/issue/${linkedIssueKey}?fields=status`),
@@ -1588,17 +1675,69 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
     const message = posted.length > 0
       ? (failed.length > 0 ? `Posted to ${posted.join(', ')}. Failed: ${failed.map((f) => `${f.key} (${f.error})`).join('; ')}` : `Posted to ${posted.join(', ')}.`)
       : (failed.length > 0 ? `No comments posted. Failed: ${failed.map((f) => `${f.key} (${f.error})`).join('; ')}` : 'No linked issues.');
+    let slackTextForSlackDelivery = buildSendToLinkedSlackText(
+      currentIssueKey,
+      currentSla.status,
+      expirationDateStr,
+      [],
+      relayTemplate
+    );
+    if (posted.length > 0) {
+      const baseUrl = await getJiraBaseUrl(jira);
+      slackTextForSlackDelivery += buildSlackPostedToLinks(baseUrl, posted);
+    }
+
     if (posted.length > 0) {
       const slackParams = getSlackSendParams(config);
       if (config.notificationSlack && slackParams) {
-        const baseUrl = await getJiraBaseUrl(jira);
-        const slackText = buildSendToLinkedSlackText(currentIssueKey, currentSla.status, expirationDateStr, [], relayTemplate)
-          + buildSlackPostedToLinks(baseUrl, posted);
         const mrkdwnOpts = { mrkdwn: true };
-        if (slackParams.method === 'webhook') await sendSlackNotification(slackParams.webhookUrl, slackText, mrkdwnOpts);
-        else await sendSlackViaWebApi(slackParams.token, slackParams.channelId, slackText, mrkdwnOpts);
+        if (slackParams.method === 'webhook') {
+          await sendSlackNotification(slackParams.webhookUrl, slackTextForSlackDelivery, mrkdwnOpts);
+        } else {
+          await sendSlackViaWebApi(slackParams.token, slackParams.channelId, slackTextForSlackDelivery, mrkdwnOpts);
+        }
       }
     }
+
+    const dmEnabledManual =
+      config.notificationSlackDm ||
+      (Array.isArray(config.notificationSlackDmEmails) && config.notificationSlackDmEmails.length > 0);
+    const dmTokenManual = getSlackBotTokenForDm(config);
+    if (dmEnabledManual && dmTokenManual) {
+      const dmSentManual = new Set();
+      if (config.notificationSlackDm && posted.length > 0) {
+        const dmTrigger = currentSla.status === 'breached' ? 'breached' : 'at_risk';
+        const resolvedNotifyFieldsManual = new Map();
+        for (const linkedKey of posted) {
+          const linkedPeople = await buildMentionPeopleFromIssue(
+            jira,
+            linkedKey,
+            config,
+            resolvedNotifyFieldsManual
+          );
+          const mentionsDm = buildMentionsForTrigger(config, dmTrigger, linkedPeople);
+          for (const m of mentionsDm) {
+            if (!m?.accountId) continue;
+            const email = await getEmailForJiraAccountId(jira, m.accountId);
+            if (email && !dmSentManual.has(email.toLowerCase())) {
+              dmSentManual.add(email.toLowerCase());
+              await sendSlackDm(dmTokenManual, email, slackTextForSlackDelivery);
+            }
+          }
+        }
+      }
+      const extraEmailsManual = Array.isArray(config.notificationSlackDmEmails)
+        ? config.notificationSlackDmEmails
+        : [];
+      for (const email of extraEmailsManual) {
+        const e = (email && String(email).trim()) || '';
+        if (e && !dmSentManual.has(e.toLowerCase())) {
+          dmSentManual.add(e.toLowerCase());
+          await sendSlackDm(dmTokenManual, e, slackTextForSlackDelivery);
+        }
+      }
+    }
+
     return { ok, message, posted, failed };
   } catch (e) {
     console.error('[SLA Link Inspector] notifyLinkedTicketsOfCurrentSla error', e.message);
@@ -1618,7 +1757,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
 
   if (!safeIssueKey) {
     console.log('[SLA Link Inspector] Resolver: no issue key in payload or context', JSON.stringify({ hasPayload: !!payload, contextKeys: context ? Object.keys(context) : [] }));
-    return { error: 'No issue key. Open this panel from a Jira issue view.', linkedIssues: [], licenseStatus };
+    return { error: 'No issue key. Open this panel from a Jira issue view.', linkedIssues: [], panelSla: null, licenseStatus };
   }
 
   console.log('[SLA Link Inspector] Resolver: selected issue key', safeIssueKey);
@@ -1634,8 +1773,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
     }
 
     const configEarly = await getAdminConfig();
-    const notifyFieldInputs = [...(configEarly.atRiskNotifyFromFields || []), ...(configEarly.breachedNotifyFromFields || [])];
-    const resolvedNotifyFields = await resolveNotifyFromFieldIds(jira, notifyFieldInputs);
+    const resolvedNotifyFields = new Map();
     const parentFieldsParam = ['issuelinks'];
     if (slaFieldId) parentFieldsParam.push(slaFieldId);
     const parentFieldsQuery = parentFieldsParam.join(',');
@@ -1645,11 +1783,20 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
     if (!issueRes.ok) {
       const errText = await issueRes.text();
       console.error('[SLA Link Inspector] Resolver: failed to load issue', issueRes.status, errText);
-      return { error: `Failed to load issue: ${issueRes.status} ${errText}`, linkedIssues: [], licenseStatus };
+      return { error: `Failed to load issue: ${issueRes.status} ${errText}`, linkedIssues: [], panelSla: null, licenseStatus };
     }
 
     const issueData = await issueRes.json();
     const parentSla = getSlaData(issueData.fields, slaField);
+    let slaForPanel = parentSla;
+    const hasSlaFromFields =
+      parentSla.status !== 'none' ||
+      (parentSla.label != null && !String(parentSla.label).toLowerCase().includes('no sla'));
+    if (!hasSlaFromFields) {
+      const jsmSla = await getSlaDataFromJsm(jira, safeIssueKey);
+      if (jsmSla) slaForPanel = jsmSla;
+    }
+    const panelSla = buildPanelSlaSummary(slaField, slaForPanel);
     const links = issueData.fields?.issuelinks || [];
     const linkedKeys = new Set();
     for (const link of links) {
@@ -1661,7 +1808,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
     console.log('[SLA Link Inspector] Resolver: linked issues returned', linkedKeys.size);
 
     if (linkedKeys.size === 0) {
-      return { linkedIssues: [], issueKey: safeIssueKey, parentSla: parentSla || null, licenseStatus };
+      return { linkedIssues: [], issueKey: safeIssueKey, parentSla: parentSla || null, panelSla, licenseStatus };
     }
 
     const fieldsParam = ['summary', 'status', 'assignee', 'priority'];
@@ -1817,13 +1964,14 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
       }
     }
 
-    return { linkedIssues, issueKey: safeIssueKey, parentSla: parentSla || null, licenseStatus };
+    return { linkedIssues, issueKey: safeIssueKey, parentSla: parentSla || null, panelSla, licenseStatus };
   } catch (err) {
     console.error('[SLA Link Inspector] Resolver error:', err.message || err);
     return {
       error: err.message || 'Unknown error',
       linkedIssues: [],
       issueKey: safeIssueKey,
+      panelSla: null,
       licenseStatus: getLicenseStatus(),
     };
   }

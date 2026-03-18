@@ -2,31 +2,30 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Send SLA Alert to Linked Tickets</title>
+  <title>Linked SLA Alerts</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="app">
-    <p class="version-banner" id="version-banner"></p>
     <div id="license-banner" class="license-banner" style="display: none;" role="alert"></div>
-    <h1>Send SLA Alert to Linked Tickets</h1>
-    <p class="panel-copy">Notify linked tickets of SLA status and expiry.</p>
 
     <div id="loading" class="state-message">
       Checking for linked tickets…
     </div>
 
     <div id="error" class="state-message error" style="display: none;"></div>
-    <div id="empty" class="state-message empty" style="display: none;">
-      No linked issues. Add issue links to this ticket to relay SLA status and expiry to them.
+
+    <div id="panel-main" class="panel-main" style="display: none;">
+      <div id="sla-status-block" class="sla-status-block"></div>
+      <div id="sla-summary" class="sla-summary-wrap"></div>
+      <div id="sla-send-section" class="sla-send-section"></div>
     </div>
 
-    <div id="sla-summary" class="sla-summary" style="display: none;"></div>
-    <div id="sla-send-section" class="sla-send-section" style="display: none;"></div>
-
-    <div id="panel-feedback" class="panel-feedback panel-feedback-hidden" role="status" aria-live="polite"></div>
-    <p class="panel-admin-link-wrap"><a href="#" id="panel-admin-link" class="panel-admin-link">Configure app</a></p>
+    <footer class="panel-footer">
+      <a href="#" id="panel-admin-link" class="panel-admin-link">Configure app</a>
+      <p class="panel-version" id="version-banner"></p>
+    </footer>
   </div>
-  <script src="build/main.js?v=1773791783719"></script>
+  <script src="build/main.js?v=1773854450023"></script>
 </body>
 </html>

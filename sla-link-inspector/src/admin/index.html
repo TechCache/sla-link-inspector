@@ -7,190 +7,228 @@
 </head>
 <body>
   <div id="app">
-    <h1>Configurations</h1>
-    <p class="subtitle">Configure when and how to notify about linked-issue SLA status. The Send SLA Alert to Linked Tickets panel sends this issue's SLA to linked tickets and notifies assignees.</p>
+    <h1>SLA alert settings</h1>
+    <p class="subtitle">Alerts use the <strong>parent</strong> ticket’s SLA. Comments and @mentions go on <strong>linked</strong> tickets.</p>
+
+    <div class="mental-model" role="note">
+      <strong>How it works</strong>
+      <ul class="mental-model-list">
+        <li><strong>Triggers</strong> — The parent ticket’s SLA (at risk, breached, or low time left).</li>
+        <li><strong>Recipients</strong> — Who to @mention on each linked ticket.</li>
+        <li><strong>Delivery</strong> — Jira, Slack, and/or email — use any mix.</li>
+      </ul>
+    </div>
+
     <div id="license-banner" class="license-banner" style="display: none;" role="alert"></div>
 
-
-    <section class="config-section">
-      <h2>SLA field (optional)</h2>
-      <p class="hint">The app auto-detects an SLA custom field by name. If your site uses a different field name or language, set the custom field ID here so "Send SLA to linked tickets" works.</p>
-      <label class="hint">Custom field ID (e.g. customfield_10005):</label>
+    <!-- 1 · SLA source -->
+    <section class="config-section ia-sla">
+      <h2 class="ia-h2"><span class="ia-num">1</span> SLA field</h2>
+      <p class="hint ia-lead">SLA lives on the <strong>parent</strong> ticket. Leave blank to auto-detect the field.</p>
+      <label class="hint">Custom field ID</label>
       <input type="text" id="slaFieldId" class="text-input" placeholder="Leave empty to auto-detect" style="max-width: 280px; margin-top: 4px;" />
-      <p class="hint small" style="margin-top: 8px;">Find it in Jira: Project settings, Fields, then copy your SLA field ID. Jira Service Management SLA is also supported without this.</p>
+      <p class="hint small deemph">Jira: Project settings → Fields. JSM SLA: usually leave blank.</p>
     </section>
 
-    <section class="config-section">
-      <h2>Trigger conditions</h2>
-      <p class="hint">Notify when the <strong>parent</strong> ticket’s SLA becomes:</p>
+    <!-- 2 · When alerts fire -->
+    <section class="config-section ia-triggers">
+      <h2 class="ia-h2"><span class="ia-num">2</span> When to alert</h2>
+      <p class="hint ia-lead">When the <strong>parent</strong> SLA hits these states:</p>
       <label class="checkbox-label"><input type="checkbox" id="triggerAtRisk" /> At risk</label>
       <label class="checkbox-label"><input type="checkbox" id="triggerBreached" /> Breached</label>
-      <p class="hint small trigger-crossref">A time-remaining warning (optional third trigger) is configurable in the recipient section below.</p>
-      <div class="global-modifier">
-        <div class="hint small global-modifier-label">Applies to all triggers:</div>
-        <div class="global-modifier-content">
-          <label class="checkbox-label"><input type="checkbox" id="onlyNotifyIfOpen" /> Only notify if linked issue is still open</label>
-          <p class="hint small global-modifier-desc">When enabled, no alert is sent if the linked ticket is already resolved/done.</p>
-        </div>
-      </div>
-    </section>
 
-    <section class="config-section" id="at-risk-recipients">
-      <h2><strong>At Risk</strong> &amp; time-remaining warning → who gets notified</h2>
-      <p class="hint">All options below refer to the <strong>linked ticket</strong> (whose assignee, reporter, watchers, or custom fields get @mentioned).</p>
-
-      <div class="time-warning-block">
-        <h3 class="subsection-title">Time-remaining warning</h3>
-        <p class="hint small">Optional third trigger. Uses the <strong>same recipients</strong> as At Risk in this section (assignee, reporter, etc.).</p>
+      <div class="time-warning-block ia-nested">
+        <h3 class="subsection-title">Time left warning</h3>
+        <p class="hint small">Uses the same people as <strong>3a</strong> (At Risk).</p>
         <p style="margin-top: 10px;">
           <label class="checkbox-label"><input type="checkbox" id="trigger30MinRemaining" /> Warn when parent SLA has ≤</label>
           <input type="number" id="warningMinutesRemaining" class="text-input" min="1" max="1440" step="1" placeholder="30" style="width: 72px; margin-left: 8px; vertical-align: middle;" aria-describedby="warningMinutesHint" />
           <span>minutes left</span>
         </p>
-        <p id="warningMinutesHint" class="hint small field-hint">Range: 1–1440 (up to 24 hours).</p>
+        <p id="warningMinutesHint" class="hint small field-hint">1–1440 min (up to 24h).</p>
       </div>
 
-      <h3 class="subsection-title" style="margin-top: 20px;">Recipients for At Risk and the warning above</h3>
-      <p class="hint small">@mention these people on the linked ticket:</p>
+      <div class="global-modifier">
+        <div class="hint small global-modifier-label">Applies to all triggers</div>
+        <div class="global-modifier-content">
+          <label class="checkbox-label"><input type="checkbox" id="onlyNotifyIfOpen" /> Only if linked ticket is still open</label>
+          <p class="hint small global-modifier-desc">Skip alerts when the linked issue is done.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="recipients-bundle">
+      <div class="recipients-bundle-intro">
+        <strong>Step 3 · Recipients on linked tickets</strong>
+        <p class="hint small bundle-intro-text">Two rule sets — <strong>3a</strong> (At Risk + time warning) and <strong>3b</strong> (Breached). Same controls in each; match or differ as you like.</p>
+      </div>
+    <!-- 3a -->
+    <section class="config-section ia-who recipients-split" id="at-risk-recipients">
+      <h2 class="ia-h2"><span class="ia-num">3a</span> At Risk &amp; time warning</h2>
+      <p class="hint ia-lead tight-lead">Who to @mention on each <strong>linked</strong> ticket:</p>
       <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyAssignee" /> Assignee</label>
       <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyReporter" /> Reporter</label>
       <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyWatchers" /> Watchers</label>
-      <p class="hint" style="margin-top: 10px;">Additional @mentions (e.g. manager, stakeholders):</p>
-      <div class="mention-picker">
-        <input type="text" id="atRiskMentionSearch" class="text-input" placeholder="Search by name or email..." style="max-width: 240px; margin-right: 8px;" />
-        <button type="button" id="atRiskMentionSearchBtn" class="btn btn-secondary">Search</button>
-        <div id="atRiskMentionResults" class="mention-results"></div>
-        <div id="atRiskMentionChips" class="mention-chips"></div>
-      </div>
-      <p class="hint small" style="margin-top: 10px;">Also notify users from linked-ticket fields (comma-separated field name or ID, e.g. <code>Request Participants</code>, <code>customfield_10001</code>):</p>
-      <input type="text" id="atRiskNotifyFromFields" class="text-input" placeholder="e.g. Request Participants" style="max-width: 400px; margin-top: 4px;" />
+      <label class="checkbox-label checkbox-rp">
+        <input type="checkbox" id="atRiskNotifyRequestParticipants" />
+        <span class="checkbox-rp-title">Request Participants</span>
+        <span class="checkbox-rp-hint deemph">JSM projects only</span>
+      </label>
     </section>
 
-    <section class="config-section">
-      <h2>When SLA becomes <strong>Breached</strong> → who gets notified</h2>
-      <p class="hint">All options below refer to the <strong>linked ticket</strong> (whose assignee, reporter, watchers, or custom fields get @mentioned).</p>
+    <!-- 3b -->
+    <section class="config-section ia-who recipients-split recipients-split-last">
+      <h2 class="ia-h2"><span class="ia-num">3b</span> Breached</h2>
+      <p class="hint ia-lead tight-lead">Who to @mention when the parent SLA is <strong>breached</strong>:</p>
       <label class="checkbox-label"><input type="checkbox" id="breachedNotifyAssignee" /> Assignee</label>
       <label class="checkbox-label"><input type="checkbox" id="breachedNotifyReporter" /> Reporter</label>
       <label class="checkbox-label"><input type="checkbox" id="breachedNotifyWatchers" /> Watchers</label>
-      <p class="hint" style="margin-top: 10px;">Additional @mentions (e.g. manager, stakeholders):</p>
-      <div class="mention-picker">
-        <input type="text" id="breachedMentionSearch" class="text-input" placeholder="Search by name or email..." style="max-width: 240px; margin-right: 8px;" />
-        <button type="button" id="breachedMentionSearchBtn" class="btn btn-secondary">Search</button>
-        <div id="breachedMentionResults" class="mention-results"></div>
-        <div id="breachedMentionChips" class="mention-chips"></div>
-      </div>
-      <p class="hint small" style="margin-top: 10px;">Also notify users from linked-ticket fields (comma-separated field name or ID):</p>
-      <input type="text" id="breachedNotifyFromFields" class="text-input" placeholder="e.g. Request Participants" style="max-width: 400px; margin-top: 4px;" />
+      <label class="checkbox-label checkbox-rp">
+        <input type="checkbox" id="breachedNotifyRequestParticipants" />
+        <span class="checkbox-rp-title">Request Participants</span>
+        <span class="checkbox-rp-hint deemph">JSM projects only</span>
+      </label>
     </section>
+    </div>
 
-    <section class="config-section">
-      <h2>Notification type</h2>
-      <p class="hint">Send notification as (you can enable more than one):</p>
-      <label class="checkbox-label"><input type="checkbox" id="notificationComment" /> Jira Comment</label>
-      <p class="hint small notify-desc">Post a comment on each linked ticket (about the parent's SLA).</p>
-      <label class="checkbox-label"><input type="checkbox" id="notificationMention" /> Jira @Mention</label>
-      <p class="hint small notify-desc">Include @mentions in the comment so assignee/reporter/watchers get notified. Uncheck to post without pinging.</p>
-      <label class="checkbox-label"><input type="checkbox" id="notificationSlack" /> Slack</label>
-      <div class="slack-options" id="slackSubOptions">
-        <div class="slack-option-card">
-          <p class="hint small"><strong>Option 1 – Incoming webhook (post to one channel):</strong></p>
-          <input type="url" id="slackWebhookUrl" class="text-input" placeholder="https://hooks.slack.com/services/..." style="margin-top: 4px;" />
-          <p class="hint small">Create at api.slack.com → Your app → Incoming Webhooks → Add New Webhook to Workspace.</p>
-        </div>
+    <!-- 4 · Where (delivery) -->
+    <section class="config-section ia-delivery">
+      <h2 class="ia-h2"><span class="ia-num">4</span> Where alerts go</h2>
+      <p class="hint ia-lead">Turn on what you need. Jira comments always go on <strong>linked</strong> tickets.</p>
 
-        <div class="slack-option-card">
-          <p class="hint small"><strong>Option 2 – Post to a channel (Channel ID):</strong></p>
-          <div class="callout callout-warn">
-            <strong>⚠️</strong> If both a webhook URL and Channel ID are set, the webhook takes precedence for channel posting.
+      <div class="delivery-block">
+        <h3 class="delivery-block-title">Jira</h3>
+        <label class="checkbox-label"><input type="checkbox" id="notificationComment" /> Post a comment on linked tickets</label>
+        <p class="hint small notify-desc deemph">Includes the parent ticket’s SLA summary.</p>
+        <label class="checkbox-label"><input type="checkbox" id="notificationMention" /> @mention people in that comment</label>
+        <p class="hint small notify-desc deemph">Off: comment only, no @mention.</p>
+      </div>
+
+      <div class="delivery-block delivery-block-slack">
+        <h3 class="delivery-block-title">Slack</h3>
+        <label class="checkbox-label"><input type="checkbox" id="notificationSlack" /> Send Slack alerts</label>
+        <p class="hint small slack-lead">Choose one or more Slack delivery methods.</p>
+
+        <div class="slack-options" id="slackSubOptions">
+          <div class="slack-option-card">
+            <p class="slack-card-title">Channel via webhook</p>
+            <input type="url" id="slackWebhookUrl" class="text-input slack-input-tight" placeholder="https://hooks.slack.com/services/..." />
+            <p class="hint small deemph">Incoming Webhook URL from Slack.</p>
           </div>
-          <input type="text" id="slackChannelId" class="text-input" placeholder="Channel ID (e.g. C01234ABCD)" style="margin-top: 4px; max-width: 280px;" />
-          <p class="hint small">Only for posting to a channel. The bot must be in that channel. In Slack: open the channel → channel name → View channel details for the ID.</p>
-        </div>
 
-        <div class="slack-option-card">
-          <p class="hint small"><strong>Option 3 – DMs (no channel):</strong></p>
-          <p class="hint small">We send a direct message to each person in your Slack workspace by looking them up by email. They do <strong>not</strong> need to be in any channel—only in the same Slack workspace.</p>
-          <label class="checkbox-label"><input type="checkbox" id="notificationSlackDm" /> DM assignee/reporter/custom-field users (look up by their Jira email in Slack)</label>
-          <label class="field-label dm-extra-label" for="notificationSlackDmEmails"><strong>Also DM these emails:</strong></label>
-          <textarea id="notificationSlackDmEmails" class="text-input" rows="2" placeholder="e.g. lead@company.com" style="margin-top: 6px; max-width: 400px; resize: vertical;"></textarea>
-          <p class="hint small">Requires the Bot token below. In your Slack app add scopes <code>users:read.email</code> and <code>im:write</code>. You can use DMs only (leave Channel ID blank) or use both channel + DMs.</p>
-        </div>
+          <p class="slack-precedence deemph">If both webhook and channel ID are set, <strong>channel posts use the webhook</strong>.</p>
 
-        <div class="time-warning-block shared-requirement">
-          <h3 class="subsection-title">Shared requirement — Bot token (Options 2 &amp; 3)</h3>
-          <input type="password" id="slackBotToken" class="text-input" placeholder="xoxb-..." style="margin-top: 4px; max-width: 400px;" autocomplete="off" />
-          <button type="button" id="clearSlackTokenBtn" class="btn btn-secondary" style="margin-left: 8px; margin-top: 4px;">Clear saved token</button>
-          <p class="hint small field-hint">From Slack: Your app → OAuth & Permissions → Bot User OAuth Token. Each Jira site saves its own token here.</p>
-        </div>
+          <div class="slack-option-card">
+            <p class="slack-card-title">Channel via bot</p>
+            <input type="text" id="slackChannelId" class="text-input slack-input-tight" placeholder="Channel ID (e.g. C01234ABCD)" style="max-width: 280px;" />
+            <p class="hint small deemph">Invite the bot to the channel first.</p>
+          </div>
 
-        <div class="slack-test-row">
-          <button type="button" id="testSlackBtn" class="btn btn-secondary" style="margin-top: 12px;">Test Slack</button>
-          <button type="button" id="testSlackDmBtn" class="btn btn-secondary" style="margin-top: 12px; margin-left: 8px;">Test Slack DM</button>
+          <div class="slack-option-card slack-card-dm">
+            <p class="slack-card-title">Direct messages via bot</p>
+            <p class="hint small deemph">DMs match Jira users to Slack by email.</p>
+            <label class="checkbox-label"><input type="checkbox" id="notificationSlackDm" /> DM people selected in step 3 on each linked ticket</label>
+            <label class="field-label dm-extra-label" for="notificationSlackDmEmails">Always notify these emails (all tickets)</label>
+            <textarea id="notificationSlackDmEmails" class="text-input" rows="2" placeholder="Comma or line-separated addresses" style="margin-top: 6px; max-width: 400px; resize: vertical;"></textarea>
+            <p class="hint small deemph dm-global-hint">These addresses receive a DM for <strong>every</strong> SLA alert, regardless of which ticket triggers it. Use for team leads or on-call contacts who monitor all SLAs.</p>
+            <details class="admin-details deemph">
+              <summary>Slack app permissions (admins)</summary>
+              <p class="hint small deemph admin-details-body">DMs need bot scopes such as <code>users:read.email</code> and <code>im:write</code> on your Slack app.</p>
+            </details>
+          </div>
         </div>
       </div>
 
-      <div class="notification-subsection email-webhook-block">
-        <h3 class="subsection-title">Email (via webhook)</h3>
-        <p class="hint small">Send alert data to Zapier, Make.com, or similar so you can forward email yourself.</p>
-        <label class="checkbox-label block-label"><input type="checkbox" id="notificationEmail" /> Enable email webhook</label>
+      <div class="delivery-block">
+        <h3 class="delivery-block-title">Email</h3>
+        <p class="hint small deemph">Use Zapier or Make to forward into your inbox.</p>
+        <label class="checkbox-label block-label"><input type="checkbox" id="notificationEmail" /> Send to email webhook</label>
         <label class="field-label" for="emailWebhookUrl">Webhook URL</label>
         <input type="url" id="emailWebhookUrl" class="text-input" placeholder="https://hooks.zapier.com/... or Make.com webhook" style="max-width: 100%; margin-top: 6px;" />
-        <p class="hint small field-hint">The webhook receives a JSON payload (issue keys, status, message, etc.). Build a Zap or scenario to send email.</p>
+        <p class="hint small field-hint deemph">Payload includes issue key, SLA status, and message text.</p>
       </div>
     </section>
 
-    <section class="config-section">
-      <h2>Message templates</h2>
-      <p class="hint">Two templates—pick the right one for how the message is sent:</p>
+    <!-- 5 · Slack bot (only when bot channel or DMs) -->
+    <div id="slackBotSetupHost" class="slack-bot-setup-host">
+      <p id="slackBotSetupSkipped" class="slack-bot-skipped deemph" hidden>
+        <strong>Slack bot</strong> — Not needed for webhook-only delivery. Add <strong>channel via bot</strong> (without webhook) or turn on <strong>DMs</strong> to configure the token and tests.
+      </p>
+      <section id="slackBotSetupStep" class="config-section ia-credentials ia-slack-bot-step" hidden>
+        <h2 class="ia-h2"><span class="ia-num">5</span> Slack bot setup</h2>
+        <p class="hint ia-lead slack-bot-lead">Use when you post to a channel via the bot or send DMs. Not needed for webhook-only delivery.</p>
+        <label class="field-label token-label-tight" for="slackBotToken">Bot User OAuth token</label>
+        <input type="password" id="slackBotToken" class="text-input slack-token-input" placeholder="xoxb-…" autocomplete="off" />
+        <p class="hint small deemph token-helper-tight">Updating the token? Clear saved, then paste the new one.</p>
+        <button type="button" id="clearSlackTokenBtn" class="btn btn-secondary btn-clear-token">Clear saved token</button>
+        <details class="admin-details deemph token-oauth-details">
+          <summary>Where to find the token</summary>
+          <p class="hint small deemph admin-details-body">Slack app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token.</p>
+        </details>
+        <div class="test-actions">
+          <p class="test-actions-label">Test Slack delivery</p>
+          <div class="test-actions-btns">
+            <button type="button" id="testSlackBtn" class="btn btn-secondary">Test channel post</button>
+            <button type="button" id="testSlackDmBtn" class="btn btn-secondary">Test DM</button>
+          </div>
+          <p class="hint small deemph test-actions-micro">Channel post uses webhook if set; otherwise bot and channel ID. Test DM uses the first address in &ldquo;Always notify these emails,&rdquo; or prompts for an issue key.</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- 6 · Message content -->
+    <section class="config-section ia-messages message-content-final">
+      <h2 class="ia-h2"><span class="ia-num">6</span> Message wording</h2>
+      <p class="hint ia-lead">Leave blank to use default wording.</p>
       <table class="template-compare" aria-label="When each template is used">
         <thead>
           <tr>
             <th scope="col">Template</th>
-            <th scope="col">Triggered by</th>
+            <th scope="col">When</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td><strong>Automated alert</strong></td>
-            <td>SLA status change: At Risk, Breached, or time-remaining warning (comments on linked tickets, optional Slack/email)</td>
+            <td><strong>Automated</strong></td>
+            <td>Parent SLA → at risk, breached, or time warning</td>
           </tr>
           <tr>
             <td><strong>Manual send</strong></td>
-            <td>Clicking <strong>Send SLA to linked tickets</strong> in the issue panel—comment on linked tickets and matching Slack message</td>
+            <td>Panel action “Send SLA to linked tickets” (+ Slack if on)</td>
           </tr>
         </tbody>
       </table>
 
-      <h3 class="subsection-title" style="margin-top: 24px;">Automated alert template</h3>
-      <p class="hint small">Jira comment text when the parent SLA hits At Risk, Breached, or the time-remaining threshold. Also used for Slack/email for those events.</p>
-      <p class="hint">Variables:</p>
-      <ul class="vars-list">
-        <li><code>{{issueKey}}</code> — parent issue key (SLA ticket)</li>
-        <li><code>{{slaName}}</code> — SLA field name</li>
-        <li><code>{{remainingTime}}</code> — e.g. “9d left” or “2h overdue”</li>
-        <li><code>{{status}}</code> — at risk / breached / X minutes remaining</li>
-        <li><code>{{assignee}}</code> — @mentions from the linked ticket per your At Risk / Breached settings</li>
+      <h3 class="subsection-title" style="margin-top: 24px;">Automated alerts</h3>
+      <p class="hint small deemph">Same text for Jira comments and Slack/email on automated triggers.</p>
+      <p class="hint label-tight">Placeholders</p>
+      <ul class="vars-list compact-vars">
+        <li><code>{{issueKey}}</code> — parent (SLA ticket)</li>
+        <li><code>{{slaName}}</code> — SLA name</li>
+        <li><code>{{remainingTime}}</code> — e.g. 9d left</li>
+        <li><code>{{status}}</code> — at risk / breached / N min left</li>
+        <li><code>{{assignee}}</code> — @mentions (step 3: assignee, reporter, watchers, Request Participants)</li>
       </ul>
       <textarea id="customTemplate" class="template-input" rows="10" placeholder="Leave empty to use the default message."></textarea>
-      <p class="hint small field-hint">Tip: Keep messages under 500 characters for best readability in Jira comments.</p>
+      <p class="hint small field-hint template-tip-separator deemph">~500 characters or less reads well in Jira.</p>
 
-      <h3 class="subsection-title template-manual-title" style="margin-top: 32px;">Manual send template</h3>
-      <p class="hint small">Comment on linked tickets when you use the panel action. Same wording goes to Slack if Slack is enabled for that flow.</p>
-      <p class="hint">Variables:</p>
-      <ul class="vars-list">
-        <li><code>{{issueKey}}</code> — parent issue whose SLA you’re relaying</li>
-        <li><code>{{slaStatus}}</code> — At-Risk / Breached / In SLA range</li>
-        <li><code>{{expiryDate}}</code> — formatted expiration date</li>
-        <li><code>{{assignee}}</code> — @mentions on the linked ticket (assignee/reporter)</li>
+      <h3 class="subsection-title template-manual-title" style="margin-top: 20px;">Manual send</h3>
+      <p class="hint small deemph">When someone uses “Send SLA to linked tickets” on an issue.</p>
+      <p class="hint label-tight">Placeholders</p>
+      <ul class="vars-list compact-vars">
+        <li><code>{{issueKey}}</code> — parent SLA ticket</li>
+        <li><code>{{slaStatus}}</code> — At-Risk / Breached / in range</li>
+        <li><code>{{expiryDate}}</code> — expiry</li>
+        <li><code>{{assignee}}</code> — linked assignee/reporter</li>
       </ul>
-      <p class="hint small"><strong>Example:</strong></p>
+      <p class="hint small"><strong>Example</strong></p>
       <pre class="template-example" aria-hidden="true">Linked ticket {{issueKey}} SLA is now {{slaStatus}}.
 
 The date of expiration: {{expiryDate}}.
 
 {{assignee}}</pre>
       <textarea id="relayCommentTemplate" class="template-input" rows="6" placeholder="Leave empty to use the default message."></textarea>
-      <p class="hint small field-hint">Tip: Keep messages under 500 characters for best readability in Jira comments.</p>
+      <p class="hint small field-hint deemph">~500 characters or less reads well in Jira.</p>
     </section>
 
     <div class="actions">

@@ -10,9 +10,11 @@ const CONFIG_KEYS = [
   'atRiskNotifyAssignee',
   'atRiskNotifyReporter',
   'atRiskNotifyWatchers',
+  'atRiskNotifyRequestParticipants',
   'breachedNotifyAssignee',
   'breachedNotifyReporter',
   'breachedNotifyWatchers',
+  'breachedNotifyRequestParticipants',
   'notificationComment',
   'notificationMention',
   'notificationEmail',
@@ -25,8 +27,6 @@ const CONFIG_KEYS = [
   'slackBotToken',
   'customTemplate',
   'relayCommentTemplate',
-  'atRiskNotifyFromFields',
-  'breachedNotifyFromFields',
 ];
 
 const errorEl = document.getElementById('error');
@@ -35,9 +35,15 @@ const feedbackEl = document.getElementById('feedback');
 const saveBtn = document.getElementById('saveBtn');
 const licenseBannerEl = document.getElementById('license-banner');
 
-let additionalMentionsAtRisk = [];
-let additionalMentionsBreached = [];
 let isLicensed = true;
+
+function finalizeAdminPayload(payload) {
+  payload.atRiskNotifyFromFields = [];
+  payload.breachedNotifyFromFields = [];
+  payload.atRiskAdditionalMentions = [];
+  payload.breachedAdditionalMentions = [];
+  return payload;
+}
 
 function updateSlackVisibility() {
   const slackCheckbox = getCheckbox('notificationSlack');
@@ -45,6 +51,31 @@ function updateSlackVisibility() {
   if (!slackSubOptions) return;
   const enabled = Boolean(slackCheckbox && slackCheckbox.checked);
   slackSubOptions.hidden = !enabled;
+}
+
+/** Bot token needed when DMs are on, or channel posts use bot (channel ID without webhook). */
+function slackDeliveryNeedsBotToken() {
+  if (!getCheckbox('notificationSlack')?.checked) return false;
+  if (getCheckbox('notificationSlackDm')?.checked) return true;
+  const ch = (getInput('slackChannelId')?.value || '').trim();
+  const wh = (getInput('slackWebhookUrl')?.value || '').trim();
+  return Boolean(ch && !wh);
+}
+
+function updateSlackBotSetupVisibility() {
+  const host = document.getElementById('slackBotSetupHost');
+  const skipped = document.getElementById('slackBotSetupSkipped');
+  const step = document.getElementById('slackBotSetupStep');
+  if (!host || !skipped || !step) return;
+  const slackOn = Boolean(getCheckbox('notificationSlack')?.checked);
+  if (!slackOn) {
+    host.hidden = true;
+    return;
+  }
+  host.hidden = false;
+  const needsBot = slackDeliveryNeedsBotToken();
+  skipped.hidden = needsBot;
+  step.hidden = !needsBot;
 }
 
 function showError(msg) {
@@ -92,10 +123,6 @@ function formToPayload() {
       if (el.value && el.value.trim() !== '') payload[key] = el.value.trim();
       continue;
     }
-    if (key === 'atRiskNotifyFromFields' || key === 'breachedNotifyFromFields') {
-      payload[key] = (el.value || '').split(',').map((s) => s.trim()).filter(Boolean);
-      continue;
-    }
     if (key === 'notificationSlackDmEmails') {
       payload[key] = (el.value || '').split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
       continue;
@@ -121,10 +148,6 @@ function payloadToForm(payload) {
     if (key === 'slackBotToken') {
       el.value = '';
       el.placeholder = value && String(value).trim() ? '•••••••• (saved)' : 'xoxb-...';
-      continue;
-    }
-    if (key === 'atRiskNotifyFromFields' || key === 'breachedNotifyFromFields') {
-      el.value = Array.isArray(value) ? value.join(', ') : '';
       continue;
     }
     if (key === 'notificationSlackDmEmails') {
@@ -160,10 +183,7 @@ async function load() {
     if (testSlackBtnEl) testSlackBtnEl.disabled = !isLicensed;
     payloadToForm(config);
     updateSlackVisibility();
-    additionalMentionsAtRisk = Array.isArray(config.atRiskAdditionalMentions) ? config.atRiskAdditionalMentions : [];
-    additionalMentionsBreached = Array.isArray(config.breachedAdditionalMentions) ? config.breachedAdditionalMentions : [];
-    renderMentionChips('atRisk');
-    renderMentionChips('breached');
+    updateSlackBotSetupVisibility();
   } catch (e) {
     showError(e.message || 'Failed to load settings.');
   }
@@ -171,9 +191,7 @@ async function load() {
 
 async function save() {
   if (!isLicensed) return;
-  const payload = formToPayload();
-  payload.atRiskAdditionalMentions = additionalMentionsAtRisk;
-  payload.breachedAdditionalMentions = additionalMentionsBreached;
+  const payload = finalizeAdminPayload(formToPayload());
   saveBtn.disabled = true;
   hideFeedback();
   try {
@@ -194,7 +212,13 @@ saveBtn.addEventListener('click', save);
 hideFeedback();
 load();
 
-getCheckbox('notificationSlack')?.addEventListener('change', updateSlackVisibility);
+getCheckbox('notificationSlack')?.addEventListener('change', () => {
+  updateSlackVisibility();
+  updateSlackBotSetupVisibility();
+});
+getCheckbox('notificationSlackDm')?.addEventListener('change', updateSlackBotSetupVisibility);
+getInput('slackChannelId')?.addEventListener('input', updateSlackBotSetupVisibility);
+getInput('slackWebhookUrl')?.addEventListener('input', updateSlackBotSetupVisibility);
 
 async function testSlack() {
   const btn = document.getElementById('testSlackBtn');
@@ -255,7 +279,7 @@ async function clearSlackToken() {
   if (btn) btn.disabled = true;
   hideFeedback();
   try {
-    const payload = formToPayload();
+    const payload = finalizeAdminPayload(formToPayload());
     payload.slackBotToken = '';
     const result = await invoke('setAdminConfig', payload);
     if (result && result.ok) {
@@ -274,74 +298,3 @@ async function clearSlackToken() {
 
 const clearSlackTokenBtn = document.getElementById('clearSlackTokenBtn');
 if (clearSlackTokenBtn) clearSlackTokenBtn.addEventListener('click', clearSlackToken);
-
-function renderMentionChips(trigger) {
-  const list = trigger === 'atRisk' ? additionalMentionsAtRisk : additionalMentionsBreached;
-  const container = document.getElementById(trigger === 'atRisk' ? 'atRiskMentionChips' : 'breachedMentionChips');
-  if (!container) return;
-  container.innerHTML = '';
-  list.forEach((user, index) => {
-    const chip = document.createElement('span');
-    chip.className = 'mention-chip';
-    chip.appendChild(document.createTextNode(user.displayName || user.accountId || 'User'));
-    const remove = document.createElement('span');
-    remove.className = 'mention-chip-remove';
-    remove.setAttribute('aria-label', 'Remove');
-    remove.textContent = '×';
-    remove.addEventListener('click', (e) => {
-      e.preventDefault();
-      if (trigger === 'atRisk') {
-        additionalMentionsAtRisk = additionalMentionsAtRisk.filter((_, i) => i !== index);
-      } else {
-        additionalMentionsBreached = additionalMentionsBreached.filter((_, i) => i !== index);
-      }
-      renderMentionChips(trigger);
-    });
-    chip.appendChild(remove);
-    container.appendChild(chip);
-  });
-}
-
-function renderMentionResults(trigger, users) {
-  const container = document.getElementById(trigger === 'atRisk' ? 'atRiskMentionResults' : 'breachedMentionResults');
-  if (!container) return;
-  container.innerHTML = '';
-  const list = trigger === 'atRisk' ? additionalMentionsAtRisk : additionalMentionsBreached;
-  const existingIds = new Set(list.map((u) => u.accountId));
-  (users || []).forEach((user) => {
-    if (existingIds.has(user.accountId)) return;
-    const item = document.createElement('div');
-    item.className = 'mention-results-item';
-    item.textContent = user.displayName || user.accountId;
-    item.addEventListener('click', () => {
-      if (trigger === 'atRisk') {
-        additionalMentionsAtRisk = [...additionalMentionsAtRisk, { accountId: user.accountId, displayName: user.displayName || user.accountId }];
-      } else {
-        additionalMentionsBreached = [...additionalMentionsBreached, { accountId: user.accountId, displayName: user.displayName || user.accountId }];
-      }
-      renderMentionChips(trigger);
-      container.innerHTML = '';
-    });
-    container.appendChild(item);
-  });
-}
-
-async function doMentionSearch(trigger) {
-  const input = document.getElementById(trigger === 'atRisk' ? 'atRiskMentionSearch' : 'breachedMentionSearch');
-  const query = (input && input.value || '').trim();
-  if (query.length < 2) {
-    renderMentionResults(trigger, []);
-    return;
-  }
-  try {
-    const result = await invoke('searchJiraUsers', { query });
-    renderMentionResults(trigger, result.users || []);
-  } catch (e) {
-    renderMentionResults(trigger, []);
-  }
-}
-
-document.getElementById('atRiskMentionSearchBtn')?.addEventListener('click', () => doMentionSearch('atRisk'));
-document.getElementById('breachedMentionSearchBtn')?.addEventListener('click', () => doMentionSearch('breached'));
-document.getElementById('atRiskMentionSearch')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doMentionSearch('atRisk'); } });
-document.getElementById('breachedMentionSearch')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doMentionSearch('breached'); } });
