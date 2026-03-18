@@ -35,21 +35,26 @@
       <h2 class="ia-h2"><span class="ia-num">2</span> When to alert</h2>
       <p class="hint ia-lead">When the <strong>parent</strong> SLA hits these states:</p>
       <label class="checkbox-label"><input type="checkbox" id="triggerAtRisk" /> At risk</label>
+      <p class="hint small deemph trigger-at-risk-note">Fires when the parent SLA has <strong>25% or less</strong> of its total time left (not yet breached). Jira may label this “at risk” in the UI.</p>
       <label class="checkbox-label"><input type="checkbox" id="triggerBreached" /> Breached</label>
 
       <div class="time-warning-block ia-nested">
-        <h3 class="subsection-title">Time left warning</h3>
+        <h3 class="subsection-title">Time left warnings</h3>
         <p class="hint small">Uses the same people as <strong>3a</strong> (At Risk).</p>
-        <p style="margin-top: 10px;">
-          <label class="checkbox-label"><input type="checkbox" id="trigger30MinRemaining" /> Warn when parent SLA has ≤</label>
-          <input type="number" id="warningMinutesRemaining" class="text-input" min="1" max="1440" step="1" placeholder="30" style="width: 72px; margin-left: 8px; vertical-align: middle;" aria-describedby="warningMinutesHint" />
-          <span>minutes left</span>
+        <label class="checkbox-label time-left-warnings-enable">
+          <input type="checkbox" id="timeLeftWarningsEnabled" />
+          Enable time-left warnings on linked tickets
+        </label>
+        <p class="hint small deemph time-left-warnings-explainer">
+          When the parent SLA has <strong>at or below</strong> each threshold, a one-time alert is sent per threshold (separate from At risk / Breached).
         </p>
-        <p id="warningMinutesHint" class="hint small field-hint">1–1440 min (up to 24h).</p>
+        <div id="timeLeftWarningsRows" class="time-left-warnings-rows" aria-label="Warning thresholds in days"></div>
+        <button type="button" id="addTimeLeftWarningBtn" class="btn btn-secondary btn-add-time-warning">Add additional warning</button>
+        <p class="hint small field-hint">Each row: warn when ≤ this many <strong>days</strong> remain (0.05–365; e.g. 0.5 = 12 hours).</p>
       </div>
 
       <div class="global-modifier">
-        <div class="hint small global-modifier-label">Applies to all triggers</div>
+        <div class="hint small global-modifier-label">Applies to all triggers:</div>
         <div class="global-modifier-content">
           <label class="checkbox-label"><input type="checkbox" id="onlyNotifyIfOpen" /> Only if linked ticket is still open</label>
           <p class="hint small global-modifier-desc">Skip alerts when the linked issue is done.</p>
@@ -64,29 +69,33 @@
       </div>
     <!-- 3a -->
     <section class="config-section ia-who recipients-split" id="at-risk-recipients">
-      <h2 class="ia-h2"><span class="ia-num">3a</span> At Risk &amp; time warning</h2>
-      <p class="hint ia-lead tight-lead">Who to @mention on each <strong>linked</strong> ticket:</p>
+      <h3 class="recipients-split-heading">
+        <span class="ia-num">3a</span>
+        <span class="recipients-split-heading-label">At Risk &amp; time warning</span>
+      </h3>
+      <p class="hint ia-lead recipients-split-lead">Who to @mention when the parent SLA is <strong>at risk</strong>:</p>
       <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyAssignee" /> Assignee</label>
       <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyReporter" /> Reporter</label>
       <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyWatchers" /> Watchers</label>
-      <label class="checkbox-label checkbox-rp">
+      <label class="checkbox-label">
         <input type="checkbox" id="atRiskNotifyRequestParticipants" />
-        <span class="checkbox-rp-title">Request Participants</span>
-        <span class="checkbox-rp-hint deemph">JSM projects only</span>
+        Request Participants <span class="checkbox-rp-hint deemph">JSM projects only</span>
       </label>
     </section>
 
     <!-- 3b -->
     <section class="config-section ia-who recipients-split recipients-split-last">
-      <h2 class="ia-h2"><span class="ia-num">3b</span> Breached</h2>
-      <p class="hint ia-lead tight-lead">Who to @mention when the parent SLA is <strong>breached</strong>:</p>
+      <h3 class="recipients-split-heading">
+        <span class="ia-num">3b</span>
+        <span class="recipients-split-heading-label">Breached</span>
+      </h3>
+      <p class="hint ia-lead recipients-split-lead">Who to @mention when the parent SLA is <strong>breached</strong>:</p>
       <label class="checkbox-label"><input type="checkbox" id="breachedNotifyAssignee" /> Assignee</label>
       <label class="checkbox-label"><input type="checkbox" id="breachedNotifyReporter" /> Reporter</label>
       <label class="checkbox-label"><input type="checkbox" id="breachedNotifyWatchers" /> Watchers</label>
-      <label class="checkbox-label checkbox-rp">
+      <label class="checkbox-label">
         <input type="checkbox" id="breachedNotifyRequestParticipants" />
-        <span class="checkbox-rp-title">Request Participants</span>
-        <span class="checkbox-rp-hint deemph">JSM projects only</span>
+        Request Participants <span class="checkbox-rp-hint deemph">JSM projects only</span>
       </label>
     </section>
     </div>
@@ -96,16 +105,16 @@
       <h2 class="ia-h2"><span class="ia-num">4</span> Where alerts go</h2>
       <p class="hint ia-lead">Turn on what you need. Jira comments always go on <strong>linked</strong> tickets.</p>
 
-      <div class="delivery-block">
-        <h3 class="delivery-block-title">Jira</h3>
+      <div class="delivery-method-card">
+        <h3 class="delivery-method-card-title">Jira</h3>
         <label class="checkbox-label"><input type="checkbox" id="notificationComment" /> Post a comment on linked tickets</label>
         <p class="hint small notify-desc deemph">Includes the parent ticket’s SLA summary.</p>
         <label class="checkbox-label"><input type="checkbox" id="notificationMention" /> @mention people in that comment</label>
         <p class="hint small notify-desc deemph">Off: comment only, no @mention.</p>
       </div>
 
-      <div class="delivery-block delivery-block-slack">
-        <h3 class="delivery-block-title">Slack</h3>
+      <div class="delivery-method-card delivery-method-card-slack">
+        <h3 class="delivery-method-card-title">Slack</h3>
         <label class="checkbox-label"><input type="checkbox" id="notificationSlack" /> Send Slack alerts</label>
         <p class="hint small slack-lead">Choose one or more Slack delivery methods.</p>
 
@@ -139,7 +148,7 @@
         </div>
       </div>
 
-      <div class="delivery-block">
+      <div class="delivery-block delivery-block-email">
         <h3 class="delivery-block-title">Email</h3>
         <p class="hint small deemph">Use Zapier or Make to forward into your inbox.</p>
         <label class="checkbox-label block-label"><input type="checkbox" id="notificationEmail" /> Send to email webhook</label>

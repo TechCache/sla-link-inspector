@@ -57,8 +57,10 @@ h1 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.5rem;
+  min-width: 2rem;
   height: 1.5rem;
+  padding: 0 6px;
+  box-sizing: border-box;
   font-size: 0.75rem;
   font-weight: 700;
   color: #0052cc;
@@ -116,9 +118,40 @@ h1 {
   border-bottom: none !important;
 }
 
+.recipients-bundle .recipients-split:not(.recipients-split-last) {
+  padding-bottom: 24px !important;
+}
+
 .recipients-split-last {
-  border-top: 1px dashed #c1c7d0;
-  padding-top: 16px !important;
+  border-top: 1px solid #e0e0e0;
+  margin-top: 0;
+  padding-top: 24px !important;
+}
+
+.recipients-split-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 10px 0;
+  padding: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #253858;
+}
+
+.recipients-split-heading-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #253858;
+  line-height: 1.35;
+}
+
+.recipients-split-lead {
+  margin-top: 0 !important;
+  margin-bottom: 10px !important;
+  font-size: 13px;
 }
 
 .label-people {
@@ -258,16 +291,33 @@ h1 {
   margin-top: 16px;
 }
 
+.delivery-method-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 16px;
+  background: #fafafa;
+  margin-top: 16px;
+}
+
+.delivery-method-card:first-of-type {
+  margin-top: 8px;
+}
+
+.delivery-method-card-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  color: #253858;
+}
+
 .delivery-block {
   margin-top: 22px;
   padding-top: 18px;
   border-top: 1px solid #ebecf0;
 }
 
-.delivery-block:first-of-type {
-  margin-top: 8px;
-  padding-top: 0;
-  border-top: none;
+.delivery-block-email {
+  margin-top: 20px;
 }
 
 .delivery-block-title {
@@ -401,6 +451,12 @@ h1 {
   margin-top: 10px !important;
 }
 
+.trigger-at-risk-note {
+  margin: -2px 0 10px 22px !important;
+  max-width: 540px;
+  line-height: 1.4;
+}
+
 .global-modifier {
   margin-top: 12px;
 }
@@ -434,22 +490,11 @@ h1 {
   margin-right: 8px;
 }
 
-.checkbox-rp {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 10px;
-}
-
-.checkbox-rp .checkbox-rp-title {
-  font-weight: 500;
-  color: #253858;
-}
-
-.checkbox-rp .checkbox-rp-hint {
+.checkbox-rp-hint {
   font-size: 12px;
   font-weight: 400;
-  margin-left: 2px;
+  margin-left: 6px;
+  white-space: nowrap;
 }
 
 .checkbox-label.block-label {
@@ -470,6 +515,49 @@ h1 {
   background: #f4f5f7;
   border-radius: 6px;
   border: 1px solid #dfe1e6;
+}
+
+.time-left-warnings-enable {
+  margin-top: 12px !important;
+}
+
+.time-left-warnings-explainer {
+  margin-top: 6px !important;
+  margin-bottom: 12px !important;
+}
+
+.time-left-warnings-rows {
+  margin-bottom: 10px;
+}
+
+.time-warning-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.time-warning-row-label,
+.time-warning-row-suffix {
+  font-size: 13px;
+  color: #42526e;
+}
+
+.time-warning-row .time-left-days-input {
+  width: 88px;
+  margin-top: 0 !important;
+  max-width: none;
+}
+
+.btn-remove-time-warning {
+  font-size: 12px;
+  padding: 4px 10px;
+  margin-left: 4px;
+}
+
+.btn-add-time-warning {
+  margin-top: 4px;
 }
 
 .shared-requirement {

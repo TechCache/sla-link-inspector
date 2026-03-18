@@ -40,8 +40,9 @@ const ADMIN_CONFIG_KEY = SLA_STATUS_STORAGE_PREFIX + 'admin-config';
 const DEFAULT_ADMIN_CONFIG = {
   triggerAtRisk: true,
   triggerBreached: true,
-  trigger30MinRemaining: false,
-  warningMinutesRemaining: 30,
+  /** One-time linked-ticket alerts when parent SLA time left ≤ each threshold (days). Uses 3a recipients. */
+  timeLeftWarningsEnabled: false,
+  timeLeftWarningThresholdsDays: [],
   // At Risk → who to notify (parent issue's users)
   atRiskNotifyAssignee: true,
   atRiskNotifyReporter: false,
@@ -92,16 +93,58 @@ The date of expiration: {{expiryDate}}.
 {{assignee}}`,
 };
 
+function migrateTimeLeftWarningsConfig(cfg) {
+  const c = { ...cfg };
+  if (!Array.isArray(c.timeLeftWarningThresholdsDays)) c.timeLeftWarningThresholdsDays = [];
+  const hasThresholds = c.timeLeftWarningThresholdsDays.length > 0;
+  if (!hasThresholds && c.trigger30MinRemaining && c.warningMinutesRemaining != null) {
+    const mins = Math.max(1, Math.min(1440, Number(c.warningMinutesRemaining) || 30));
+    const days = Math.max(1 / 24, mins / 1440);
+    c.timeLeftWarningThresholdsDays = [Math.round(days * 1000) / 1000];
+    c.timeLeftWarningsEnabled = true;
+  }
+  if (c.timeLeftWarningsEnabled == null) {
+    c.timeLeftWarningsEnabled = Boolean(c.trigger30MinRemaining && c.timeLeftWarningThresholdsDays.length > 0);
+  }
+  return c;
+}
+
 async function getAdminConfig() {
   try {
     const raw = await kvs.get(ADMIN_CONFIG_KEY);
     if (raw != null && typeof raw === 'object') {
-      return { ...DEFAULT_ADMIN_CONFIG, ...raw };
+      return migrateTimeLeftWarningsConfig({ ...DEFAULT_ADMIN_CONFIG, ...raw });
     }
   } catch {
     // ignore
   }
-  return { ...DEFAULT_ADMIN_CONFIG };
+  return migrateTimeLeftWarningsConfig({ ...DEFAULT_ADMIN_CONFIG });
+}
+
+function normalizeTimeLeftThresholdsDays(arr) {
+  if (!Array.isArray(arr)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const x of arr) {
+    const n = typeof x === 'number' ? x : parseFloat(x);
+    if (!Number.isFinite(n) || n <= 0 || n > 365) continue;
+    const k = Math.round(n * 10000) / 10000;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(k);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+function timeLeftWarningStatusLabel(days) {
+  if (!Number.isFinite(days) || days <= 0) return 'threshold';
+  if (days >= 1) {
+    const r = Math.round(days * 100) / 100;
+    const s = r % 1 === 0 ? String(Math.floor(r)) : String(r);
+    return `${s} day${Number(s) === 1 ? '' : 's'} left`;
+  }
+  const h = Math.max(1, Math.round(days * 24));
+  return `${h} hour${h === 1 ? '' : 's'} left`;
 }
 
 /**
@@ -440,14 +483,16 @@ resolver.define('setAdminConfig', async ({ payload }) => {
       toStore[key] = value.map((s) => String(s).trim()).filter(Boolean);
     } else if (key === 'notificationSlackDmEmails' && Array.isArray(value)) {
       toStore[key] = value.map((s) => String(s).trim()).filter(Boolean);
-    } else if (key === 'warningMinutesRemaining') {
-      const n = parseInt(value, 10);
-      if (!Number.isNaN(n) && n >= 1 && n <= 1440) toStore[key] = n;
+    } else if (key === 'timeLeftWarningThresholdsDays' && Array.isArray(value)) {
+      toStore[key] = normalizeTimeLeftThresholdsDays(value);
     } else if (typeof value === 'boolean') toStore[key] = value;
   }
   try {
     const current = await getAdminConfig();
-    await kvs.set(ADMIN_CONFIG_KEY, { ...current, ...toStore });
+    const next = migrateTimeLeftWarningsConfig({ ...current, ...toStore });
+    delete next.trigger30MinRemaining;
+    delete next.warningMinutesRemaining;
+    await kvs.set(ADMIN_CONFIG_KEY, next);
     return { ok: true };
   } catch (e) {
     console.error('[SLA Link Inspector] setAdminConfig error', e.message);
@@ -1887,25 +1932,35 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
 
     const config = await getAdminConfig();
     const hrParent = parentSla?.hoursRemaining;
-    const warningMins = Math.max(1, Math.min(1440, config.warningMinutesRemaining || 30));
-    const warningHours = warningMins / 60;
-    if (config.trigger30MinRemaining && hrParent != null && hrParent > 0 && hrParent <= warningHours) {
-      const key30 = `${SLA_STATUS_STORAGE_PREFIX}warningMin:${warningMins}:${safeIssueKey}`;
-      try {
-        const already = await kvs.get(key30);
-        if (!already) {
-          await kvs.set(key30, 'sent');
+    const thresholds = normalizeTimeLeftThresholdsDays(config.timeLeftWarningThresholdsDays);
+    if (config.timeLeftWarningsEnabled && thresholds.length > 0 && hrParent != null && hrParent > 0) {
+      const slaName = parentSla?.label || parentSla?.sla || 'SLA';
+      for (const days of thresholds) {
+        const maxHours = days * 24;
+        if (hrParent > maxHours) continue;
+        const daysKey = String(Math.round(days * 10000) / 10000);
+        const warnKvsKey = `${SLA_STATUS_STORAGE_PREFIX}warningDays:${daysKey}:${safeIssueKey}`;
+        try {
+          const already = await kvs.get(warnKvsKey);
+          if (already) continue;
+          await kvs.set(warnKvsKey, 'sent');
           const remainingTimeStr = formatHours(hrParent) + ' left';
-          const statusLabel = `${warningMins} minutes remaining`;
-          const template = config.customTemplate || `Linked ticket {{issueKey}}: ${statusLabel}. {{assignee}} please review.`;
-          const vars30 = { issueKey: safeIssueKey, slaName: parentSla?.sla || 'SLA', remainingTime: remainingTimeStr, status: statusLabel };
+          const statusLabel = `≤${timeLeftWarningStatusLabel(days)} (warning)`;
+          const template =
+            config.customTemplate || `Linked ticket {{issueKey}}: parent SLA ${statusLabel}. {{assignee}} please review.`;
+          const varsWarn = {
+            issueKey: safeIssueKey,
+            slaName,
+            remainingTime: remainingTimeStr,
+            status: statusLabel,
+          };
           for (const linked of linkedIssues) {
             if (linked.error) continue;
             if (config.onlyNotifyIfOpen && linked.statusCategory === 'done') continue;
-            const linkedPeople30 = await buildMentionPeopleFromIssue(jira, linked.key, config, resolvedNotifyFields);
-            const mentions30 = buildMentionsForTrigger(config, 'at_risk', linkedPeople30);
-            const commentMentions30 = config.notificationMention ? mentions30 : [];
-            const adfBody = templateToAdf(template, vars30, commentMentions30);
+            const linkedPeopleW = await buildMentionPeopleFromIssue(jira, linked.key, config, resolvedNotifyFields);
+            const mentionsW = buildMentionsForTrigger(config, 'at_risk', linkedPeopleW);
+            const commentMentionsW = config.notificationMention ? mentionsW : [];
+            const adfBody = templateToAdf(template, varsWarn, commentMentionsW);
             if (config.notificationComment) {
               const res = await jira(route`/rest/api/3/issue/${linked.key}/comment`, {
                 method: 'POST',
@@ -1913,34 +1968,45 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
                 body: JSON.stringify(adfBody),
               });
               if (!res.ok) continue;
-              console.log('[SLA Link Inspector] Resolver: time-remaining warning (parent SLA) posted on linked', linked.key);
+              console.log(
+                '[SLA Link Inspector] Resolver: time-left warning',
+                daysKey,
+                'd posted on linked',
+                linked.key
+              );
             }
-            const plain30 = buildPlainTextMessage(config.customTemplate || null, vars30, mentions30) || `Parent ticket ${safeIssueKey} SLA: ${statusLabel}.`;
-            const slackParams30 = getSlackSendParams(config);
-            if (config.notificationSlack && slackParams30) {
-              if (slackParams30.method === 'webhook') await sendSlackNotification(slackParams30.webhookUrl, plain30);
-              else await sendSlackViaWebApi(slackParams30.token, slackParams30.channelId, plain30);
+            const plainW =
+              buildPlainTextMessage(config.customTemplate || null, varsWarn, mentionsW) ||
+              `Parent ticket ${safeIssueKey} SLA: ${statusLabel}.`;
+            const slackParamsW = getSlackSendParams(config);
+            if (config.notificationSlack && slackParamsW) {
+              if (slackParamsW.method === 'webhook') await sendSlackNotification(slackParamsW.webhookUrl, plainW);
+              else await sendSlackViaWebApi(slackParamsW.token, slackParamsW.channelId, plainW);
             }
-            const dmEnabled30 = config.notificationSlackDm || (Array.isArray(config.notificationSlackDmEmails) && config.notificationSlackDmEmails.length > 0);
-            const dmToken30 = getSlackBotTokenForDm(config);
-            if (dmEnabled30 && dmToken30) {
-              const dmSent30 = new Set();
-              if (config.notificationSlackDm && Array.isArray(mentions30)) {
-                for (const m of mentions30) {
+            const dmEnabledW =
+              config.notificationSlackDm ||
+              (Array.isArray(config.notificationSlackDmEmails) && config.notificationSlackDmEmails.length > 0);
+            const dmTokenW = getSlackBotTokenForDm(config);
+            if (dmEnabledW && dmTokenW) {
+              const dmSentW = new Set();
+              if (config.notificationSlackDm && Array.isArray(mentionsW)) {
+                for (const m of mentionsW) {
                   if (!m?.accountId) continue;
                   const email = await getEmailForJiraAccountId(jira, m.accountId);
-                  if (email && !dmSent30.has(email.toLowerCase())) {
-                    dmSent30.add(email.toLowerCase());
-                    await sendSlackDm(dmToken30, email, plain30);
+                  if (email && !dmSentW.has(email.toLowerCase())) {
+                    dmSentW.add(email.toLowerCase());
+                    await sendSlackDm(dmTokenW, email, plainW);
                   }
                 }
               }
-              const extraEmails30 = Array.isArray(config.notificationSlackDmEmails) ? config.notificationSlackDmEmails : [];
-              for (const email of extraEmails30) {
+              const extraEmailsW = Array.isArray(config.notificationSlackDmEmails)
+                ? config.notificationSlackDmEmails
+                : [];
+              for (const email of extraEmailsW) {
                 const e = (email && String(email).trim()) || '';
-                if (e && !dmSent30.has(e.toLowerCase())) {
-                  dmSent30.add(e.toLowerCase());
-                  await sendSlackDm(dmToken30, e, plain30);
+                if (e && !dmSentW.has(e.toLowerCase())) {
+                  dmSentW.add(e.toLowerCase());
+                  await sendSlackDm(dmTokenW, e, plainW);
                 }
               }
             }
@@ -1950,17 +2016,17 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
                 parentIssueKey: safeIssueKey,
                 linkedIssueKey: linked.key,
                 status: statusLabel,
-                slaName: vars30.slaName,
+                slaName: varsWarn.slaName,
                 remainingTime: remainingTimeStr,
-                recipients: mentions30.map((m) => ({ accountId: m.accountId, displayName: m.displayName || m.name })),
-                message: plain30,
-                subject: `SLA ${statusLabel}: ${safeIssueKey}`,
+                recipients: mentionsW.map((m) => ({ accountId: m.accountId, displayName: m.displayName || m.name })),
+                message: plainW,
+                subject: `SLA warning (${safeIssueKey}): ${statusLabel}`,
               });
             }
           }
+        } catch (e) {
+          console.error('[SLA Link Inspector] Resolver: time-left warning error', daysKey, e.message);
         }
-      } catch (e) {
-        console.error('[SLA Link Inspector] Resolver: time-remaining warning error', e.message);
       }
     }
 

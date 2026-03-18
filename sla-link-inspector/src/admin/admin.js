@@ -4,8 +4,6 @@ const CONFIG_KEYS = [
   'slaFieldId',
   'triggerAtRisk',
   'triggerBreached',
-  'trigger30MinRemaining',
-  'warningMinutesRemaining',
   'onlyNotifyIfOpen',
   'atRiskNotifyAssignee',
   'atRiskNotifyReporter',
@@ -36,6 +34,56 @@ const saveBtn = document.getElementById('saveBtn');
 const licenseBannerEl = document.getElementById('license-banner');
 
 let isLicensed = true;
+
+const timeLeftWarningsRowsEl = document.getElementById('timeLeftWarningsRows');
+
+function createTimeLeftWarningRow(daysValue) {
+  const row = document.createElement('div');
+  row.className = 'time-warning-row';
+  const v = Number.isFinite(Number(daysValue)) && Number(daysValue) > 0 ? Number(daysValue) : 1;
+  row.innerHTML = `
+    <span class="time-warning-row-label">Warn when ≤</span>
+    <input type="number" class="text-input time-left-days-input" min="0.05" max="365" step="any" value="${v}" />
+    <span class="time-warning-row-suffix">days left</span>
+    <button type="button" class="btn btn-secondary btn-remove-time-warning">Remove</button>
+  `;
+  row.querySelector('.btn-remove-time-warning').addEventListener('click', () => {
+    if (timeLeftWarningsRowsEl && timeLeftWarningsRowsEl.children.length <= 1) return;
+    row.remove();
+  });
+  return row;
+}
+
+function renderTimeLeftWarningRows(thresholds) {
+  if (!timeLeftWarningsRowsEl) return;
+  timeLeftWarningsRowsEl.innerHTML = '';
+  const list = Array.isArray(thresholds) && thresholds.length > 0 ? thresholds : [1];
+  list.forEach((d) => {
+    const v = parseFloat(d);
+    const val = Number.isFinite(v) && v >= 0.05 && v <= 365 ? v : 1;
+    timeLeftWarningsRowsEl.appendChild(createTimeLeftWarningRow(val));
+  });
+}
+
+function collectTimeLeftWarningDays() {
+  if (!timeLeftWarningsRowsEl) return [];
+  const inputs = timeLeftWarningsRowsEl.querySelectorAll('.time-left-days-input');
+  const out = [];
+  inputs.forEach((inp) => {
+    const v = parseFloat(inp.value);
+    if (Number.isFinite(v) && v >= 0.05 && v <= 365) {
+      out.push(Math.round(v * 10000) / 10000);
+    }
+  });
+  return [...new Set(out)].sort((a, b) => a - b);
+}
+
+function buildAdminSavePayload() {
+  const payload = finalizeAdminPayload(formToPayload());
+  payload.timeLeftWarningsEnabled = Boolean(document.getElementById('timeLeftWarningsEnabled')?.checked);
+  payload.timeLeftWarningThresholdsDays = collectTimeLeftWarningDays();
+  return payload;
+}
 
 function finalizeAdminPayload(payload) {
   payload.atRiskNotifyFromFields = [];
@@ -127,11 +175,6 @@ function formToPayload() {
       payload[key] = (el.value || '').split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
       continue;
     }
-    if (key === 'warningMinutesRemaining') {
-      const n = parseInt(el.value, 10);
-      payload[key] = Number.isNaN(n) ? 30 : Math.max(1, Math.min(1440, n));
-      continue;
-    }
     if (el.type === 'checkbox') {
       payload[key] = el.checked;
     } else {
@@ -152,10 +195,6 @@ function payloadToForm(payload) {
     }
     if (key === 'notificationSlackDmEmails') {
       el.value = Array.isArray(value) ? value.join(', ') : '';
-      continue;
-    }
-    if (key === 'warningMinutesRemaining') {
-      el.value = value != null && Number.isFinite(Number(value)) ? Math.max(1, Math.min(1440, Number(value))) : '30';
       continue;
     }
     if (el.type === 'checkbox') {
@@ -182,6 +221,9 @@ async function load() {
     const testSlackBtnEl = document.getElementById('testSlackBtn');
     if (testSlackBtnEl) testSlackBtnEl.disabled = !isLicensed;
     payloadToForm(config);
+    renderTimeLeftWarningRows(config.timeLeftWarningThresholdsDays);
+    const tle = document.getElementById('timeLeftWarningsEnabled');
+    if (tle) tle.checked = Boolean(config.timeLeftWarningsEnabled);
     updateSlackVisibility();
     updateSlackBotSetupVisibility();
   } catch (e) {
@@ -189,9 +231,21 @@ async function load() {
   }
 }
 
+document.getElementById('addTimeLeftWarningBtn')?.addEventListener('click', () => {
+  if (!timeLeftWarningsRowsEl) return;
+  const inputs = timeLeftWarningsRowsEl.querySelectorAll('.time-left-days-input');
+  let last = 1;
+  if (inputs.length) {
+    const p = parseFloat(inputs[inputs.length - 1].value);
+    if (Number.isFinite(p) && p > 0.1) last = p;
+  }
+  const next = Math.max(0.05, Math.min(365, last / 2));
+  timeLeftWarningsRowsEl.appendChild(createTimeLeftWarningRow(Math.round(next * 1000) / 1000));
+});
+
 async function save() {
   if (!isLicensed) return;
-  const payload = finalizeAdminPayload(formToPayload());
+  const payload = buildAdminSavePayload();
   saveBtn.disabled = true;
   hideFeedback();
   try {
@@ -279,7 +333,7 @@ async function clearSlackToken() {
   if (btn) btn.disabled = true;
   hideFeedback();
   try {
-    const payload = finalizeAdminPayload(formToPayload());
+    const payload = buildAdminSavePayload();
     payload.slackBotToken = '';
     const result = await invoke('setAdminConfig', payload);
     if (result && result.ok) {
