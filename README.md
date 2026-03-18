@@ -9,7 +9,7 @@ The app runs entirely on Atlassian Forge, meaning all processing happens inside 
 ## Features
 
 • **Send SLA Alert to Linked Tickets panel** — Notify linked tickets of this issue’s SLA status and expiry  
-• **Send to linked tickets** — Post a comment on each linked ticket with status (At-Risk, Breached, In SLA range), date of expiration, and @mention assignees  
+• **Send to linked tickets** — Post a comment on each linked ticket with status (At-Risk, Breached, in range), date of expiration, and @mention assignees  
 • **Optional Slack** — Same message to a Slack channel with clickable links to the posted tickets  
 • **Send to all or specific tickets** — Choose all linked tickets or list which keys to notify  
 • **Alerts** when a linked issue’s SLA becomes at risk or breached (configurable notifications on the parent issue)  
