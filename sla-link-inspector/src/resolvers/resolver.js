@@ -453,6 +453,72 @@ resolver.define('testSlackWebhook', async ({ payload }) => {
 });
 
 /**
+ * Test Slack DM delivery by emailing lookup and DM send.
+ * Payload: { email, slackBotToken? }. If slackBotToken omitted, uses saved admin config token.
+ */
+resolver.define('testSlackDm', async ({ payload, context }) => {
+  const licenseStatus = getLicenseStatus();
+  if (licenseStatus.isProduction && !licenseStatus.licensed) {
+    return { ok: false, error: licenseStatus.reason || 'A valid license is required. Please upgrade from the Marketplace.' };
+  }
+  const email = (payload?.email != null ? String(payload.email) : '').trim();
+  const issueKeyOverride = (payload?.issueKey != null ? String(payload.issueKey) : '').trim();
+  const config = (payload && payload.slackBotToken != null) ? payload : await getAdminConfig();
+  const token = getSlackBotTokenForDm(config);
+  if (!token) return { ok: false, error: 'Missing Slack Bot token. Paste it under “Shared requirement — Bot token (Options 2 & 3)”.' };
+  const testMessage = `Test DM. If you see this, Slack DMs are working for this app.`;
+  try {
+    const attempted = [];
+    if (email) {
+      const res = await sendSlackDmWithResult(token, email, testMessage);
+      if (!res.ok) return { ok: false, error: `Slack DM failed for ${email}: ${res.error}` };
+      attempted.push(email);
+    }
+
+    // If no explicit email, DM the assignee of the current issue if available; otherwise DM the current Jira user.
+    const jira = api.asApp().requestJira.bind(api.asApp());
+    let targetAccountId = null;
+    const issueKey =
+      issueKeyOverride ||
+      (context && (context?.extension?.issue?.key || context?.extension?.issueKey || context?.platform?.issueKey || context?.platform?.issue?.key)) ||
+      null;
+    if (issueKey) {
+      try {
+        const issueRes = await jira(route`/rest/api/3/issue/${issueKey}?fields=assignee`);
+        if (issueRes.ok) {
+          const issue = await issueRes.json().catch(() => ({}));
+          targetAccountId = issue?.fields?.assignee?.accountId || null;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (!targetAccountId) {
+      targetAccountId = (context && (context.accountId || context?.principal?.accountId || context?.extension?.accountId)) || null;
+    }
+    if (targetAccountId) {
+      const jiraEmail = await getEmailForJiraAccountId(jira, String(targetAccountId));
+      const normalizedPrimary = email ? email.toLowerCase() : '';
+      if (jiraEmail && jiraEmail.toLowerCase() !== normalizedPrimary) {
+        const res = await sendSlackDmWithResult(token, jiraEmail, testMessage);
+        if (!res.ok) return { ok: false, error: `Slack DM failed for ${jiraEmail}: ${res.error}` };
+        attempted.push(jiraEmail);
+      }
+    }
+
+    if (attempted.length === 0) {
+      return { ok: false, error: 'No DM target found. Add an email under “Also DM these emails” or run this test from an issue context with an assignee.' };
+    }
+    return {
+      ok: true,
+      message: `Test DM attempted to: ${attempted.join(', ')}. Note: the DM will appear to the recipient as a conversation with the SLA Link Inspector app. If you don’t receive it, check Slack scopes (users:read.email, im:write) and that the email matches a workspace member.`,
+    };
+  } catch (e) {
+    return { ok: false, error: e.message || 'Slack DM test failed.' };
+  }
+});
+
+/**
  * Search Jira users for the admin "additional mentions" picker. Payload: { query }. Returns { users: [{ accountId, displayName }] }.
  */
 resolver.define('searchJiraUsers', async ({ payload }) => {
@@ -995,7 +1061,8 @@ async function sendSlackDm(botToken, email, message) {
     const openRes = await fetch('https://slack.com/api/conversations.open', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ users: [userId] }),
+      // Slack expects `users` as a comma-separated string (or single user ID), not an array.
+      body: JSON.stringify({ users: userId }),
     });
     const openData = await openRes.json().catch(() => ({}));
     if (!openData.ok || !openData.channel?.id) {
@@ -1012,6 +1079,48 @@ async function sendSlackDm(botToken, email, message) {
     if (!postData.ok) console.error('[SLA Link Inspector] Slack DM post failed', postData.error);
   } catch (err) {
     console.error('[SLA Link Inspector] Slack DM error', err.message);
+  }
+}
+
+/**
+ * Same as sendSlackDm, but returns a result for tests/diagnostics.
+ */
+async function sendSlackDmWithResult(botToken, email, message) {
+  const token = (botToken || '').trim();
+  const e = (email || '').trim().toLowerCase();
+  if (!token) return { ok: false, error: 'missing_token' };
+  if (!e) return { ok: false, error: 'missing_email' };
+  try {
+    const lookupRes = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(e)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const lookupData = await lookupRes.json().catch(() => ({}));
+    if (!lookupData.ok || !lookupData.user?.id) {
+      return { ok: false, error: lookupData.error || 'lookup_failed' };
+    }
+    const userId = lookupData.user.id;
+    const openRes = await fetch('https://slack.com/api/conversations.open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ users: userId }),
+    });
+    const openData = await openRes.json().catch(() => ({}));
+    if (!openData.ok || !openData.channel?.id) {
+      return { ok: false, error: openData.error || 'open_failed' };
+    }
+    const channelId = openData.channel.id;
+    const postRes = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ channel: channelId, text: message }),
+    });
+    const postData = await postRes.json().catch(() => ({}));
+    if (!postData.ok) {
+      return { ok: false, error: postData.error || 'post_failed' };
+    }
+    return { ok: true, userId, channelId };
+  } catch (err) {
+    return { ok: false, error: err.message || 'error' };
   }
 }
 

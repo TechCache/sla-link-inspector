@@ -39,6 +39,14 @@ let additionalMentionsAtRisk = [];
 let additionalMentionsBreached = [];
 let isLicensed = true;
 
+function updateSlackVisibility() {
+  const slackCheckbox = getCheckbox('notificationSlack');
+  const slackSubOptions = document.getElementById('slackSubOptions');
+  if (!slackSubOptions) return;
+  const enabled = Boolean(slackCheckbox && slackCheckbox.checked);
+  slackSubOptions.hidden = !enabled;
+}
+
 function showError(msg) {
   if (errorEl) {
     errorEl.textContent = msg || 'Something went wrong.';
@@ -151,6 +159,7 @@ async function load() {
     const testSlackBtnEl = document.getElementById('testSlackBtn');
     if (testSlackBtnEl) testSlackBtnEl.disabled = !isLicensed;
     payloadToForm(config);
+    updateSlackVisibility();
     additionalMentionsAtRisk = Array.isArray(config.atRiskAdditionalMentions) ? config.atRiskAdditionalMentions : [];
     additionalMentionsBreached = Array.isArray(config.breachedAdditionalMentions) ? config.breachedAdditionalMentions : [];
     renderMentionChips('atRisk');
@@ -185,6 +194,8 @@ saveBtn.addEventListener('click', save);
 hideFeedback();
 load();
 
+getCheckbox('notificationSlack')?.addEventListener('change', updateSlackVisibility);
+
 async function testSlack() {
   const btn = document.getElementById('testSlackBtn');
   if (!btn || !isLicensed) return;
@@ -210,6 +221,33 @@ async function testSlack() {
 
 const testSlackBtn = document.getElementById('testSlackBtn');
 if (testSlackBtn) testSlackBtn.addEventListener('click', testSlack);
+
+async function testSlackDm() {
+  const btn = document.getElementById('testSlackDmBtn');
+  if (!btn || !isLicensed) return;
+  const botToken = (getInput('slackBotToken')?.value || '').trim();
+  const dmEmailsRaw = (getInput('notificationSlackDmEmails')?.value || '').trim();
+  const firstEmail = dmEmailsRaw.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)[0] || '';
+  const issueKey = !firstEmail ? (prompt('Optional: enter an issue key to DM its assignee (e.g. ABC-123). Leave blank to DM your own Jira user.', '') || '').trim() : '';
+  btn.disabled = true;
+  hideFeedback();
+  try {
+    const payload = { slackBotToken: botToken || undefined, email: firstEmail || undefined, issueKey: issueKey || undefined };
+    const result = await invoke('testSlackDm', payload);
+    if (result && result.ok) {
+      alert(result.message || 'Test DM sent. Check your Slack direct messages.');
+    } else {
+      showError(result?.error || 'Slack DM test failed.');
+    }
+  } catch (e) {
+    showError(e.message || 'Slack DM test failed.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+const testSlackDmBtn = document.getElementById('testSlackDmBtn');
+if (testSlackDmBtn) testSlackDmBtn.addEventListener('click', testSlackDm);
 
 async function clearSlackToken() {
   if (!isLicensed) return;

@@ -25,14 +25,19 @@
       <p class="hint">Notify when the <strong>parent</strong> ticket’s SLA becomes:</p>
       <label class="checkbox-label"><input type="checkbox" id="triggerAtRisk" /> At risk</label>
       <label class="checkbox-label"><input type="checkbox" id="triggerBreached" /> Breached</label>
-      <p class="hint small" style="margin-top: 10px;">A <strong>time-remaining warning</strong> (when little time is left) is configured in the next section—it uses the same people as <strong>At Risk</strong>.</p>
-      <p class="hint" style="margin-top: 12px;"><label class="checkbox-label"><input type="checkbox" id="onlyNotifyIfOpen" /> Only notify if linked issue is still open</label></p>
-      <p class="hint small">When enabled, no alert is sent if the linked ticket is already resolved/done.</p>
+      <p class="hint small trigger-crossref">A time-remaining warning (optional third trigger) is configurable in the recipient section below.</p>
+      <div class="global-modifier">
+        <div class="hint small global-modifier-label">Applies to all triggers:</div>
+        <div class="global-modifier-content">
+          <label class="checkbox-label"><input type="checkbox" id="onlyNotifyIfOpen" /> Only notify if linked issue is still open</label>
+          <p class="hint small global-modifier-desc">When enabled, no alert is sent if the linked ticket is already resolved/done.</p>
+        </div>
+      </div>
     </section>
 
     <section class="config-section" id="at-risk-recipients">
-      <h2>At Risk &amp; time-remaining warning → who gets notified</h2>
-      <p class="hint">Comments are posted on each <strong>linked ticket</strong>. The parent ticket is the one that carries the SLA.</p>
+      <h2><strong>At Risk</strong> &amp; time-remaining warning → who gets notified</h2>
+      <p class="hint">All options below refer to the <strong>linked ticket</strong> (whose assignee, reporter, watchers, or custom fields get @mentioned).</p>
 
       <div class="time-warning-block">
         <h3 class="subsection-title">Time-remaining warning</h3>
@@ -82,29 +87,46 @@
       <h2>Notification type</h2>
       <p class="hint">Send notification as (you can enable more than one):</p>
       <label class="checkbox-label"><input type="checkbox" id="notificationComment" /> Jira Comment</label>
-      <p class="hint small">Post a comment on each linked ticket (about the parent's SLA).</p>
+      <p class="hint small notify-desc">Post a comment on each linked ticket (about the parent's SLA).</p>
       <label class="checkbox-label"><input type="checkbox" id="notificationMention" /> Jira @Mention</label>
-      <p class="hint small">Include @mentions in the comment so assignee/reporter/watchers get notified. Uncheck to post without pinging.</p>
+      <p class="hint small notify-desc">Include @mentions in the comment so assignee/reporter/watchers get notified. Uncheck to post without pinging.</p>
       <label class="checkbox-label"><input type="checkbox" id="notificationSlack" /> Slack</label>
-      <p class="hint small" style="margin-left: 24px; margin-top: 4px;">Use any combination below (webhook takes precedence for channel posting if set).</p>
-      <p class="hint small" style="margin-left: 24px;"><strong>Option 1 – Incoming webhook (post to one channel):</strong></p>
-      <input type="url" id="slackWebhookUrl" class="text-input" placeholder="https://hooks.slack.com/services/..." style="margin-left: 24px; margin-top: 4px;" />
-      <p class="hint small" style="margin-left: 24px;">Create at api.slack.com → Your app → Incoming Webhooks → Add New Webhook to Workspace.</p>
-      <p class="hint small" style="margin-left: 24px; margin-top: 10px;"><strong>Option 2 – Post to a channel (Bot token + Channel ID):</strong></p>
-      <input type="text" id="slackChannelId" class="text-input" placeholder="Channel ID (e.g. C01234ABCD)" style="margin-left: 24px; margin-top: 4px; max-width: 280px;" />
-      <p class="hint small" style="margin-left: 24px;">Only for posting to a channel. The bot must be in that channel. In Slack: open the channel → channel name → View channel details for the ID.</p>
-      <p class="hint small" style="margin-left: 24px; margin-top: 10px;"><strong>Bot token (used for Option 2 and Option 3):</strong></p>
-      <input type="password" id="slackBotToken" class="text-input" placeholder="xoxb-..." style="margin-left: 24px; margin-top: 4px; max-width: 400px;" autocomplete="off" />
-      <button type="button" id="clearSlackTokenBtn" class="btn btn-secondary" style="margin-left: 8px; margin-top: 4px;">Clear saved token</button>
-      <p class="hint small" style="margin-left: 24px;">From Slack: Your app → OAuth & Permissions → Bot User OAuth Token. Each Jira site saves its own token here.</p>
-      <p class="hint small" style="margin-left: 24px; margin-top: 10px;"><strong>Option 3 – DMs (no channel):</strong></p>
-      <p class="hint small" style="margin-left: 24px;">We send a direct message to each person in your Slack workspace by looking them up by email. They do <strong>not</strong> need to be in any channel—only in the same Slack workspace.</p>
-      <label class="checkbox-label" style="margin-left: 24px;"><input type="checkbox" id="notificationSlackDm" /> DM assignee/reporter/custom-field users (look up by their Jira email in Slack)</label>
-      <p class="hint small" style="margin-left: 24px; margin-top: 4px;">Also DM these emails (comma- or newline-separated):</p>
-      <textarea id="notificationSlackDmEmails" class="text-input" rows="2" placeholder="e.g. lead@company.com" style="margin-left: 24px; margin-top: 4px; max-width: 400px; resize: vertical;"></textarea>
-      <p class="hint small" style="margin-left: 24px;">Requires the Bot token above. In your Slack app add scopes <code>users:read.email</code> and <code>im:write</code>. You can use DMs only (leave Channel ID blank) or use both channel + DMs.</p>
-      <div class="slack-test-row">
-        <button type="button" id="testSlackBtn" class="btn btn-secondary" style="margin-left: 24px; margin-top: 12px;">Test Slack</button>
+      <div class="slack-options" id="slackSubOptions">
+        <div class="slack-option-card">
+          <p class="hint small"><strong>Option 1 – Incoming webhook (post to one channel):</strong></p>
+          <input type="url" id="slackWebhookUrl" class="text-input" placeholder="https://hooks.slack.com/services/..." style="margin-top: 4px;" />
+          <p class="hint small">Create at api.slack.com → Your app → Incoming Webhooks → Add New Webhook to Workspace.</p>
+        </div>
+
+        <div class="slack-option-card">
+          <p class="hint small"><strong>Option 2 – Post to a channel (Channel ID):</strong></p>
+          <div class="callout callout-warn">
+            <strong>⚠️</strong> If both a webhook URL and Channel ID are set, the webhook takes precedence for channel posting.
+          </div>
+          <input type="text" id="slackChannelId" class="text-input" placeholder="Channel ID (e.g. C01234ABCD)" style="margin-top: 4px; max-width: 280px;" />
+          <p class="hint small">Only for posting to a channel. The bot must be in that channel. In Slack: open the channel → channel name → View channel details for the ID.</p>
+        </div>
+
+        <div class="slack-option-card">
+          <p class="hint small"><strong>Option 3 – DMs (no channel):</strong></p>
+          <p class="hint small">We send a direct message to each person in your Slack workspace by looking them up by email. They do <strong>not</strong> need to be in any channel—only in the same Slack workspace.</p>
+          <label class="checkbox-label"><input type="checkbox" id="notificationSlackDm" /> DM assignee/reporter/custom-field users (look up by their Jira email in Slack)</label>
+          <label class="field-label dm-extra-label" for="notificationSlackDmEmails"><strong>Also DM these emails:</strong></label>
+          <textarea id="notificationSlackDmEmails" class="text-input" rows="2" placeholder="e.g. lead@company.com" style="margin-top: 6px; max-width: 400px; resize: vertical;"></textarea>
+          <p class="hint small">Requires the Bot token below. In your Slack app add scopes <code>users:read.email</code> and <code>im:write</code>. You can use DMs only (leave Channel ID blank) or use both channel + DMs.</p>
+        </div>
+
+        <div class="time-warning-block shared-requirement">
+          <h3 class="subsection-title">Shared requirement — Bot token (Options 2 &amp; 3)</h3>
+          <input type="password" id="slackBotToken" class="text-input" placeholder="xoxb-..." style="margin-top: 4px; max-width: 400px;" autocomplete="off" />
+          <button type="button" id="clearSlackTokenBtn" class="btn btn-secondary" style="margin-left: 8px; margin-top: 4px;">Clear saved token</button>
+          <p class="hint small field-hint">From Slack: Your app → OAuth & Permissions → Bot User OAuth Token. Each Jira site saves its own token here.</p>
+        </div>
+
+        <div class="slack-test-row">
+          <button type="button" id="testSlackBtn" class="btn btn-secondary" style="margin-top: 12px;">Test Slack</button>
+          <button type="button" id="testSlackDmBtn" class="btn btn-secondary" style="margin-top: 12px; margin-left: 8px;">Test Slack DM</button>
+        </div>
       </div>
 
       <div class="notification-subsection email-webhook-block">
@@ -143,30 +165,32 @@
       <p class="hint small">Jira comment text when the parent SLA hits At Risk, Breached, or the time-remaining threshold. Also used for Slack/email for those events.</p>
       <p class="hint">Variables:</p>
       <ul class="vars-list">
-        <li><code>{{issueKey}}</code> – parent issue key (SLA ticket)</li>
-        <li><code>{{slaName}}</code> – SLA field name</li>
-        <li><code>{{remainingTime}}</code> – e.g. “9d left” or “2h overdue”</li>
-        <li><code>{{status}}</code> – at risk / breached / X minutes remaining</li>
-        <li><code>{{assignee}}</code> – @mentions from the linked ticket per your At Risk / Breached settings</li>
+        <li><code>{{issueKey}}</code> — parent issue key (SLA ticket)</li>
+        <li><code>{{slaName}}</code> — SLA field name</li>
+        <li><code>{{remainingTime}}</code> — e.g. “9d left” or “2h overdue”</li>
+        <li><code>{{status}}</code> — at risk / breached / X minutes remaining</li>
+        <li><code>{{assignee}}</code> — @mentions from the linked ticket per your At Risk / Breached settings</li>
       </ul>
       <textarea id="customTemplate" class="template-input" rows="10" placeholder="Leave empty to use the default message."></textarea>
+      <p class="hint small field-hint">Tip: Keep messages under 500 characters for best readability in Jira comments.</p>
 
-      <h3 class="subsection-title" style="margin-top: 28px;">Manual send template</h3>
+      <h3 class="subsection-title template-manual-title" style="margin-top: 32px;">Manual send template</h3>
       <p class="hint small">Comment on linked tickets when you use the panel action. Same wording goes to Slack if Slack is enabled for that flow.</p>
       <p class="hint">Variables:</p>
       <ul class="vars-list">
-        <li><code>{{issueKey}}</code> – parent issue whose SLA you’re relaying</li>
-        <li><code>{{slaStatus}}</code> – At-Risk / Breached / In SLA range</li>
-        <li><code>{{expiryDate}}</code> – formatted expiration date</li>
-        <li><code>{{assignee}}</code> – @mentions on the linked ticket (assignee/reporter)</li>
+        <li><code>{{issueKey}}</code> — parent issue whose SLA you’re relaying</li>
+        <li><code>{{slaStatus}}</code> — At-Risk / Breached / In SLA range</li>
+        <li><code>{{expiryDate}}</code> — formatted expiration date</li>
+        <li><code>{{assignee}}</code> — @mentions on the linked ticket (assignee/reporter)</li>
       </ul>
-      <p class="hint small">Example:</p>
+      <p class="hint small"><strong>Example:</strong></p>
       <pre class="template-example" aria-hidden="true">Linked ticket {{issueKey}} SLA is now {{slaStatus}}.
 
 The date of expiration: {{expiryDate}}.
 
 {{assignee}}</pre>
       <textarea id="relayCommentTemplate" class="template-input" rows="6" placeholder="Leave empty to use the default message."></textarea>
+      <p class="hint small field-hint">Tip: Keep messages under 500 characters for best readability in Jira comments.</p>
     </section>
 
     <div class="actions">
