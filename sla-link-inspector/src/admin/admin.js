@@ -188,6 +188,8 @@ function updateRecipientsVisibility() {
 function slackDeliveryNeedsBotToken() {
   if (!getCheckbox('notificationSlack')?.checked) return false;
   if (getCheckbox('notificationSlackDm')?.checked) return true;
+  // Resolver also DMs Jira recipients when comment + @mention are on (even if DM checkbox is off).
+  if (getCheckbox('notificationComment')?.checked && getCheckbox('notificationMention')?.checked) return true;
   const ch = (getInput('slackChannelId')?.value || '').trim();
   const wh = (getInput('slackWebhookUrl')?.value || '').trim();
   return Boolean(ch && !wh);
@@ -362,6 +364,8 @@ getCheckbox('notificationSlack')?.addEventListener('change', () => {
   updateSlackBotSetupVisibility();
 });
 getCheckbox('notificationSlackDm')?.addEventListener('change', updateSlackBotSetupVisibility);
+getCheckbox('notificationComment')?.addEventListener('change', updateSlackBotSetupVisibility);
+getCheckbox('notificationMention')?.addEventListener('change', updateSlackBotSetupVisibility);
 getInput('slackChannelId')?.addEventListener('input', updateSlackBotSetupVisibility);
 getInput('slackWebhookUrl')?.addEventListener('input', updateSlackBotSetupVisibility);
 

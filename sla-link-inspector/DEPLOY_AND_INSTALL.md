@@ -17,19 +17,25 @@ app:
 
 ```bash
 cd /Users/cglove/Projects/sla-link-inspector/sla-link-inspector
+# Production (live Jira / what most sites should use):
+npm run deploy
+# or explicitly:
+npm run deploy:production
+
+# Development only (default Forge env when you run bare forge deploy):
 npm run deploy:dev
 ```
 
 - Note the "Build ID" in the output (e.g. `build-1710123456789`).
-- In Developer Console, open **App A** and confirm **Last updated** is just now.
+- In Developer Console, open **App A** and confirm **Last updated** is just now under the **same** environment (Production vs Development).
 
 ## 3. Install only App A on your Jira site
 
 - In Jira: **Settings (gear)** → **Apps** → **Manage apps** (or **Find new apps**).
 - Find **Linked SLA Alerts**. **Uninstall** it (or both if you see two).
 - In Developer Console, open **App A** (the one with id `aed3fc25-...`).
-- Go to **Development** (or the environment you deploy to).
-- Copy the **Install app** / **Get install link** URL.
+- Go to **Production** if you ran `npm run deploy` / `forge deploy -e production`, or **Development** if you only deploy to dev.
+- Copy the **Install app** / **Get install link** URL from that environment (Production and Development have **different** builds).
 - Open that URL in your browser and complete the install on your Jira site.
 
 ## 4. Open the panel

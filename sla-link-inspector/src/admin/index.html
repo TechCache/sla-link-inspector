@@ -117,7 +117,8 @@
           <div class="slack-option-card slack-card-dm">
             <p class="slack-card-title">Direct Messages Via Bot</p>
             <p class="hint small deemph">DMs match Jira users to Slack by email.</p>
-            <label class="checkbox-label"><input type="checkbox" id="notificationSlackDm" /> DM recipients configured above</label>
+            <label class="checkbox-label"><input type="checkbox" id="notificationSlackDm" /> Also DM those Jira users in Slack (optional if comments already @mention them)</label>
+            <p class="hint small deemph">If <strong>Post a Jira comment</strong> and <strong>@mention recipients</strong> are on (defaults), assignee/reporter/etc. get a Slack DM automatically when a bot token is saved—you do not need this box unless you turned mentions off and still want DMs.</p>
             <label class="field-label dm-extra-label" for="notificationSlackDmEmails">Always notify these emails (all tickets)</label>
             <textarea id="notificationSlackDmEmails" class="text-input" rows="2" placeholder="Comma or line-separated addresses" style="margin-top: 6px; max-width: 400px; resize: vertical;"></textarea>
             <p class="hint small deemph dm-global-hint">These addresses receive a DM for <strong>every</strong> SLA alert, regardless of which ticket triggers it. Use for team leads or on-call contacts who monitor all SLAs.</p>
@@ -161,7 +162,7 @@
             <button type="button" id="testSlackBtn" class="btn btn-secondary">Test channel post</button>
             <button type="button" id="testSlackDmBtn" class="btn btn-secondary">Test DM</button>
           </div>
-          <p class="hint small deemph test-actions-micro">Channel post uses webhook if set; otherwise bot and channel ID. Test DM uses the first address in &ldquo;Always notify these emails,&rdquo; or prompts for an issue key.</p>
+          <p class="hint small deemph test-actions-micro">Channel post uses webhook if set; otherwise bot and channel ID. Test DM: first email under &ldquo;Always notify these emails&rdquo; if set; otherwise optional issue key (assignee); otherwise the Jira user running the test.</p>
         </div>
       </section>
     </div>

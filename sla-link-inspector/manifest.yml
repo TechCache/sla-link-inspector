@@ -17,6 +17,8 @@ permissions:
   scopes:
     - read:jira-work
     - read:jira-user
+    # Slack DM / lookup: read emails even when profile visibility hides them from GET /user (asApp only).
+    - read:email-address:jira
     - write:jira-work
     - storage:app
     # Required to read SLA from Jira Service Management (e.g. "Time to resolution") when not in issue fields
