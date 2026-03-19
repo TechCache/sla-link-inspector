@@ -7,10 +7,10 @@
 </head>
 <body>
   <div id="app">
-    <h1>SLA alert settings</h1>
+    <h1>SLA Alert Settings</h1>
 
     <div class="mental-model" role="note">
-      <strong>How it works</strong>
+      <strong>How It Works</strong>
       <p class="mental-model-intro">Alerts use the <strong>parent</strong> ticket's SLA. Comments and @mentions go on <strong>linked</strong> tickets.</p>
       <ul class="mental-model-list">
         <li><strong>Triggers</strong> — The parent ticket’s SLA (at risk, breached, or low time left).</li>
@@ -23,7 +23,7 @@
 
     <!-- 1 · SLA source -->
     <section class="config-section ia-sla">
-      <h2 class="ia-h2"><span class="ia-num">1</span> SLA field</h2>
+      <h2 class="ia-h2"><span class="ia-num">1</span> SLA Field</h2>
       <p class="hint ia-lead">SLA lives on the <strong>parent</strong> ticket. Leave blank to auto-detect the field.</p>
       <label class="hint">Custom field ID</label>
       <input type="text" id="slaFieldId" class="text-input" placeholder="Leave empty to auto-detect" style="max-width: 280px; margin-top: 4px;" />
@@ -68,7 +68,7 @@
 
     <!-- 3 · Warning thresholds -->
     <section class="config-section ia-triggers">
-      <h2 class="ia-h2"><span class="ia-num">3</span> Warning thresholds</h2>
+      <h2 class="ia-h2"><span class="ia-num">3</span> Warning Thresholds</h2>
       <label class="checkbox-label time-left-warnings-enable">
         <input type="checkbox" id="timeLeftWarningsEnabled" />
         Enable warning thresholds on linked tickets
@@ -77,13 +77,13 @@
         A one-time alert fires when the SLA crosses each threshold — before or after breach. Each threshold fires independently. Choose who to notify per row.
       </p>
       <div id="timeLeftWarningsRows" class="time-left-warnings-rows" aria-label="Warning thresholds"></div>
-      <button type="button" id="addTimeLeftWarningBtn" class="btn btn-secondary btn-add-time-warning">Add threshold</button>
+      <button type="button" id="addTimeLeftWarningBtn" class="btn btn-secondary btn-add-time-warning">Add Threshold</button>
       <p class="hint small field-hint">Use a <strong>negative</strong> number to alert when breached (e.g. -1 days = 1 day past due).</p>
     </section>
 
     <!-- 4 · Where (delivery) -->
     <section class="config-section ia-delivery">
-      <h2 class="ia-h2"><span class="ia-num">4</span> Where alerts go</h2>
+      <h2 class="ia-h2"><span class="ia-num">4</span> Where Alerts Go</h2>
       <p class="hint ia-lead">Turn on what you need. Jira comments always go on <strong>linked</strong> tickets.</p>
 
       <div class="delivery-method-card">
@@ -101,7 +101,7 @@
 
         <div class="slack-options" id="slackSubOptions">
           <div class="slack-option-card">
-            <p class="slack-card-title">Channel via webhook</p>
+            <p class="slack-card-title">Channel Via Webhook</p>
             <input type="url" id="slackWebhookUrl" class="text-input slack-input-tight" placeholder="https://hooks.slack.com/services/..." />
             <p class="hint small deemph">Incoming Webhook URL from Slack.</p>
           </div>
@@ -109,20 +109,20 @@
           <p class="slack-precedence deemph">If both webhook and channel ID are set, <strong>channel posts use the webhook</strong>.</p>
 
           <div class="slack-option-card">
-            <p class="slack-card-title">Channel via bot</p>
+            <p class="slack-card-title">Channel Via Bot</p>
             <input type="text" id="slackChannelId" class="text-input slack-input-tight" placeholder="Channel ID (e.g. C01234ABCD)" style="max-width: 280px;" />
             <p class="hint small deemph">Invite the bot to the channel first.</p>
           </div>
 
           <div class="slack-option-card slack-card-dm">
-            <p class="slack-card-title">Direct messages via bot</p>
+            <p class="slack-card-title">Direct Messages Via Bot</p>
             <p class="hint small deemph">DMs match Jira users to Slack by email.</p>
             <label class="checkbox-label"><input type="checkbox" id="notificationSlackDm" /> DM recipients configured above</label>
             <label class="field-label dm-extra-label" for="notificationSlackDmEmails">Always notify these emails (all tickets)</label>
             <textarea id="notificationSlackDmEmails" class="text-input" rows="2" placeholder="Comma or line-separated addresses" style="margin-top: 6px; max-width: 400px; resize: vertical;"></textarea>
             <p class="hint small deemph dm-global-hint">These addresses receive a DM for <strong>every</strong> SLA alert, regardless of which ticket triggers it. Use for team leads or on-call contacts who monitor all SLAs.</p>
             <details class="admin-details deemph">
-              <summary>Slack app permissions (admins)</summary>
+              <summary>Slack App Permissions (Admins)</summary>
               <p class="hint small deemph admin-details-body">DMs need bot scopes such as <code>users:read.email</code> and <code>im:write</code> on your Slack app.</p>
             </details>
           </div>
@@ -145,18 +145,18 @@
         <strong>Slack bot</strong> — Not needed for webhook-only delivery. Add <strong>channel via bot</strong> (without webhook) or turn on <strong>DMs</strong> to configure the token and tests.
       </p>
       <section id="slackBotSetupStep" class="config-section ia-credentials ia-slack-bot-step" hidden>
-        <h2 class="ia-h2"><span class="ia-num">5</span> Slack bot setup</h2>
+        <h2 class="ia-h2"><span class="ia-num">5</span> Slack Bot Setup</h2>
         <p class="hint ia-lead slack-bot-lead">Use when you post to a channel via the bot or send DMs. Not needed for webhook-only delivery.</p>
         <label class="field-label token-label-tight" for="slackBotToken">Bot User OAuth token</label>
         <input type="password" id="slackBotToken" class="text-input slack-token-input" placeholder="xoxb-…" autocomplete="off" />
         <p class="hint small deemph token-helper-tight">Updating the token? Clear saved, then paste the new one.</p>
         <button type="button" id="clearSlackTokenBtn" class="btn btn-secondary btn-clear-token">Clear saved token</button>
         <details class="admin-details deemph token-oauth-details">
-          <summary>Where to find the token</summary>
+          <summary>Where to Find the Token</summary>
           <p class="hint small deemph admin-details-body">Slack app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token.</p>
         </details>
         <div class="test-actions">
-          <p class="test-actions-label">Test Slack delivery</p>
+          <p class="test-actions-label">Test Slack Delivery</p>
           <div class="test-actions-btns">
             <button type="button" id="testSlackBtn" class="btn btn-secondary">Test channel post</button>
             <button type="button" id="testSlackDmBtn" class="btn btn-secondary">Test DM</button>
@@ -168,7 +168,7 @@
 
     <!-- 6 · Message content -->
     <section class="config-section ia-messages message-content-final">
-      <h2 class="ia-h2"><span class="ia-num">6</span> Message wording</h2>
+      <h2 class="ia-h2"><span class="ia-num">6</span> Message Wording</h2>
       <p class="hint ia-lead">Leave blank to use default wording.</p>
       <table class="template-compare" aria-label="When each template is used">
         <thead>
@@ -183,13 +183,13 @@
             <td>Parent SLA → at risk, breached, or time warning</td>
           </tr>
           <tr>
-            <td><strong>Manual send</strong></td>
+            <td><strong>Manual Send</strong></td>
             <td>Panel action “Send SLA Alert” (+ Slack if on)</td>
           </tr>
         </tbody>
       </table>
 
-      <h3 class="subsection-title" style="margin-top: 24px;">Automated alerts</h3>
+      <h3 class="subsection-title" style="margin-top: 24px;">Automated Alerts</h3>
       <p class="hint small deemph">Same text for Jira comments and Slack/email on automated triggers.</p>
       <p class="hint label-tight">Placeholders</p>
       <ul class="vars-list compact-vars">
@@ -203,7 +203,7 @@
       <textarea id="customTemplate" class="template-input" rows="10" placeholder="Leave empty to use the default message."></textarea>
       <p class="hint small field-hint template-tip-separator deemph">~500 characters or less reads well in Jira.</p>
 
-      <h3 class="subsection-title template-manual-title" style="margin-top: 20px;">Manual send</h3>
+      <h3 class="subsection-title template-manual-title" style="margin-top: 20px;">Manual Send</h3>
       <p class="hint small deemph">When someone uses “Send SLA Alert” on an issue.</p>
       <p class="hint label-tight">Placeholders</p>
       <ul class="vars-list compact-vars">
