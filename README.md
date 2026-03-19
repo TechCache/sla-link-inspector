@@ -38,17 +38,26 @@ npm install
 npm run build
 ```
 
-**Deploy the Forge app:**
+**Deploy the Forge app**
+
+Forge keeps separate builds per **environment**. Plain `forge deploy` (no `-e`) targets **Development** by default, so your production Jira site will not see those builds until you deploy to **Production** and use the Production install link.
+
+| Goal | Command |
+|------|---------|
+| **Production** (live sites, Marketplace) | `npm run deploy` or `npm run deploy:production` or `forge deploy -e production` |
+| **Development** (testing) | `npm run deploy:dev` or `forge deploy -e development` |
+
+**Install the app on a Jira site**
+
+Use an install link from the same environment you deployed to (Developer Console → your app → **Production** or **Development** → Get install link). Or:
 
 ```bash
-forge deploy
+forge install --environment production
+# or
+forge install --environment development
 ```
 
-**Install the app to your Jira site:**
-
-```bash
-forge install
-```
+If the app was installed from **Development** but you deployed only to **Production**, Jira will still run the old Development build—reinstall or upgrade using the **Production** install link after `forge deploy -e production`.
 
 ## Usage
 
@@ -66,6 +75,25 @@ Administrators can configure notification triggers and integrations from **Jira 
 ## Privacy & Security
 
 Linked SLA Alerts runs entirely on Atlassian Forge infrastructure. The app does not store customer issue data outside Atlassian systems. Configuration settings are stored within Forge storage.
+
+### Slack DMs and Jira Email API
+
+To send Slack DMs by matching Jira users to Slack members, the app needs each user’s **email**. The app uses **supported Jira Cloud REST APIs** (as the Forge app):
+
+1. **`GET /rest/api/3/user/email`** and **`GET /rest/api/3/user/email/bulk`** — scope **`read:email-address:jira`**
+2. **`GET /rest/api/3/user/bulk`** — scope **`read:jira-user`** (response `values[]` may include `emailAddress` per Atlassian’s docs)
+3. **`GET /rest/api/3/user`** — same scope; may 404 or omit email when visibility differs from the endpoints above
+4. **`emailAddress` on assignee/reporter/watchers** from **`GET /rest/api/3/issue/...`** on the linked issue, then the parent
+
+**Marketplace / partner checklist:** see **`sla-link-inspector/docs/MARKETPLACE-SLACK-DM.md`** (approval process, QA, and disclosure).
+
+**After upgrading to a build that adds email scopes:** a Jira **site admin** must **accept the new permission** (re-consent) on that site—typically **Jira settings → Apps → Manage your apps → Linked SLA Alerts → Update / Review permissions**, or reinstall the app.
+
+**If Forge logs show** `Slack DM skipped — no email for Jira user` **or** `GET /user/email` **403**: the Email API is blocked until an admin approves **`read:email-address:jira`**. Use the detailed **`[SLA Link Inspector] Jira email for Slack DM`** lines in logs (status code and body snippet).
+
+**If logs show `GET /user/email/bulk` with `bodySnippet=[]`:** Jira returned **no unrestricted email rows** for that account. That is controlled by **Atlassian account privacy**, **site membership**, and **org policy**—the app cannot override it. **Always notify these emails** in app settings is an optional way to include fixed addresses in addition to Jira-derived recipients.
+
+See Atlassian’s [Profile visibility and apps](https://developer.atlassian.com/cloud/jira/platform/profile-visibility/), [Get user email](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-users/#api-rest-api-3-user-email-get), and [Get bulk users](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-users/#api-rest-api-3-user-bulk-get).
 
 See the full [privacy policy](https://techcache.github.io/privacy).
 
