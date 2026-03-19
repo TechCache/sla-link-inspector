@@ -34,6 +34,13 @@ h1 {
   color: #253858;
 }
 
+.mental-model-intro {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #42526e;
+}
+
 .mental-model-list {
   margin: 8px 0 0 0;
   padding-left: 18px;
@@ -189,9 +196,7 @@ h1 {
 }
 
 .slack-bot-setup-host:not([hidden]) {
-  padding: 12px 0 0 14px;
-  border-left: 3px solid #deebff;
-  margin-left: 2px;
+  padding: 12px 0 0 0;
 }
 
 .slack-bot-skipped {
@@ -550,7 +555,8 @@ h1 {
   max-width: none;
 }
 
-.time-warning-row .time-left-unit-select {
+.time-warning-row .time-left-unit-select,
+.time-warning-row .time-left-recipients-select {
   width: auto;
   min-width: 110px;
   margin-top: 0 !important;
@@ -561,6 +567,10 @@ h1 {
   border-radius: 4px;
   background: #fff;
   color: #172b4d;
+}
+
+.time-warning-row .time-left-recipients-select {
+  min-width: 100px;
 }
 
 .btn-remove-time-warning {
@@ -626,6 +636,29 @@ h1 {
 .slack-test-row .slack-helper-muted {
   margin-top: 10px;
   margin-bottom: -2px;
+}
+
+.recipients-sub-options {
+  margin-left: 0;
+  margin-top: 8px;
+  padding-left: 4px;
+}
+
+.recipients-block {
+  background: #f4f5f7;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-top: 8px;
+}
+
+.recipients-block .checkbox-label {
+  display: block;
+  margin-top: 6px;
+}
+
+.recipients-block .checkbox-label:first-child {
+  margin-top: 0;
 }
 
 .slack-options {

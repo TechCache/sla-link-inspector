@@ -40,9 +40,9 @@ const ADMIN_CONFIG_KEY = SLA_STATUS_STORAGE_PREFIX + 'admin-config';
 const DEFAULT_ADMIN_CONFIG = {
   triggerAtRisk: true,
   triggerBreached: true,
-  /** One-time linked-ticket alerts when parent SLA time left ≤ each threshold (days). Uses 3a recipients. */
+  /** One-time linked-ticket alerts when parent SLA hits each threshold (time left or breached). */
   timeLeftWarningsEnabled: false,
-  /** { amount: number, unit: 'days'|'hours'|'minutes' }[] — warn when parent SLA has ≤ this time left */
+  /** { amount: number, unit: 'days'|'hours'|'minutes', recipients: 'at_risk'|'breached' }[] — per-threshold recipient set */
   timeLeftWarningThresholds: [],
   // At Risk → who to notify (parent issue's users)
   atRiskNotifyAssignee: true,
@@ -82,12 +82,16 @@ The SLA is now {{status}}.
 
 Time remaining: {{remainingTime}}
 
+Ticket Priority: {{priority}}
+
 Please review this issue. {{assignee}}`,
   // Optional override when auto-detect doesn't find your SLA field (e.g. different name or language)
   slaFieldId: '',
   slaFieldName: '',
   // Message template for "Send SLA to linked tickets" (comment on linked ticket + Slack). Empty = default format.
   relayCommentTemplate: `Linked ticket {{issueKey}} SLA is now {{slaStatus}}.
+
+Priority: {{priority}}
 
 The date of expiration: {{expiryDate}}.
 
@@ -116,40 +120,105 @@ function migrateTimeLeftWarningsConfig(cfg) {
   return c;
 }
 
+function normalizeAdminTemplate(s) {
+  return String(s || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim();
+}
+
+/**
+ * Stored config keeps old default templates after we change DEFAULT_ADMIN_CONFIG.
+ * If saved text matches a legacy default, use current defaults (admin UI + runtime).
+ */
+function migrateMessageTemplates(cfg) {
+  const c = { ...cfg };
+  const autoNow = DEFAULT_ADMIN_CONFIG.customTemplate;
+  const relayNow = DEFAULT_ADMIN_CONFIG.relayCommentTemplate;
+  const legacyAutomated = new Set([
+    normalizeAdminTemplate(`⚠️ SLA Alert
+
+The SLA is now {{status}}.
+
+Time remaining: {{remainingTime}}
+
+Please review this issue. {{assignee}}`),
+    normalizeAdminTemplate(`⚠️ SLA Alert
+
+The SLA is now {{status}}.
+
+Time remaining: {{remainingTime}}
+
+Parent priority: {{priority}}
+
+Please review this issue. {{assignee}}`),
+  ]);
+  const legacyRelay = new Set([
+    normalizeAdminTemplate(`Linked ticket {{issueKey}} SLA is now {{slaStatus}}.
+
+The date of expiration: {{expiryDate}}.
+
+{{assignee}}`),
+    normalizeAdminTemplate(`Linked ticket {{issueKey}} SLA is now {{slaStatus}}.
+
+Parent priority: {{priority}}
+
+The date of expiration: {{expiryDate}}.
+
+{{assignee}}`),
+  ]);
+  if (c.customTemplate != null && legacyAutomated.has(normalizeAdminTemplate(c.customTemplate))) {
+    c.customTemplate = autoNow;
+  }
+  if (c.relayCommentTemplate != null && legacyRelay.has(normalizeAdminTemplate(c.relayCommentTemplate))) {
+    c.relayCommentTemplate = relayNow;
+  }
+  return c;
+}
+
+function finalizeAdminConfig(cfg) {
+  return migrateMessageTemplates(migrateTimeLeftWarningsConfig(cfg));
+}
+
 async function getAdminConfig() {
   try {
     const raw = await kvs.get(ADMIN_CONFIG_KEY);
     if (raw != null && typeof raw === 'object') {
-      return migrateTimeLeftWarningsConfig({ ...DEFAULT_ADMIN_CONFIG, ...raw });
+      return finalizeAdminConfig({ ...DEFAULT_ADMIN_CONFIG, ...raw });
     }
   } catch {
     // ignore
   }
-  return migrateTimeLeftWarningsConfig({ ...DEFAULT_ADMIN_CONFIG });
+  return finalizeAdminConfig({ ...DEFAULT_ADMIN_CONFIG });
 }
 
 const TIME_LEFT_UNITS = new Set(['days', 'hours', 'minutes']);
 
 /**
  * Parse threshold entry → hours. Returns { hours, amount, unit } or null.
+ * Positive amount = "warn when ≤ X left". Negative amount = "warn when breached ≥ |X|" (e.g. -1 days = 1 day past due).
  */
 function parseTimeLeftThresholdEntry(entry) {
   const unit =
     entry && TIME_LEFT_UNITS.has(String(entry.unit)) ? String(entry.unit) : 'days';
   const amount = typeof entry?.amount === 'number' ? entry.amount : parseFloat(entry?.amount);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (!Number.isFinite(amount) || amount === 0) return null;
   let hours = null;
   if (unit === 'days') {
-    if (amount > 365 || amount < 0.01) return null;
+    if (amount > 0 && (amount > 365 || amount < 0.01)) return null;
+    if (amount < 0 && (amount < -365 || amount > -0.01)) return null;
     hours = amount * 24;
   } else if (unit === 'hours') {
-    if (amount > 8760 || amount < 1 / 60) return null;
+    if (amount > 0 && (amount > 8760 || amount < 1 / 60)) return null;
+    if (amount < 0 && (amount < -8760 || amount > -1 / 60)) return null;
     hours = amount;
   } else {
-    if (amount > 525600 || amount < 1) return null;
+    if (amount > 0 && (amount > 525600 || amount < 1)) return null;
+    if (amount < 0 && (amount < -525600 || amount > -1)) return null;
     hours = amount / 60;
   }
-  if (hours <= 0 || hours > 8760) return null;
+  if (hours > 0 && (hours <= 0 || hours > 8760)) return null;
+  if (hours < 0 && (hours >= 0 || hours < -8760)) return null;
   return { hours: Math.round(hours * 1e8) / 1e8, amount, unit };
 }
 
@@ -159,13 +228,16 @@ function normalizeTimeLeftWarningThresholds(arr) {
   const out = [];
   for (const e of arr) {
     const p = parseTimeLeftThresholdEntry(e);
-    if (!p || seen.has(p.hours)) continue;
-    seen.add(p.hours);
+    if (!p) continue;
+    const recipients = (e.recipients === 'breached' ? 'breached' : 'at_risk');
+    const key = `${p.hours}:${recipients}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     let amount = p.amount;
     if (p.unit === 'minutes') amount = Math.round(amount);
     if (p.unit === 'days') amount = Math.round(amount * 10000) / 10000;
     if (p.unit === 'hours') amount = Math.round(amount * 1000) / 1000;
-    out.push({ hours: p.hours, amount, unit: p.unit });
+    out.push({ hours: p.hours, amount, unit: p.unit, recipients });
   }
   return out.sort((a, b) => a.hours - b.hours);
 }
@@ -526,6 +598,7 @@ resolver.define('setAdminConfig', async ({ payload }) => {
       toStore[key] = normalizeTimeLeftWarningThresholds(value).map((t) => ({
         amount: t.amount,
         unit: t.unit,
+        recipients: t.recipients === 'breached' ? 'breached' : 'at_risk',
       }));
     } else if (typeof value === 'boolean') toStore[key] = value;
   }
@@ -535,6 +608,9 @@ resolver.define('setAdminConfig', async ({ payload }) => {
     delete next.trigger30MinRemaining;
     delete next.warningMinutesRemaining;
     delete next.timeLeftWarningThresholdsDays;
+    delete next.atRiskNotifyManager;
+    delete next.breachedNotifyManager;
+    delete next.warningThresholdsRecipients;
     await kvs.set(ADMIN_CONFIG_KEY, next);
     return { ok: true };
   } catch (e) {
@@ -691,14 +767,22 @@ function formatExpirationDate(hoursRemaining) {
   return new Date(expMs).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+/** Jira priority field → display string for templates. */
+function formatParentPriority(priorityField) {
+  const n = priorityField?.name;
+  if (n != null && String(n).trim()) return String(n).trim();
+  return '—';
+}
+
 /**
- * Build ADF from relay template. Vars: {{issueKey}}, {{slaStatus}}, {{expiryDate}}, {{assignee}} (mention nodes).
+ * Build ADF from relay template. Vars: {{issueKey}}, {{slaStatus}}, {{priority}}, {{expiryDate}}, {{assignee}} (mention nodes).
  */
-function relayTemplateToAdf(template, hostIssueKey, statusText, expirationDateStr, mentions) {
+function relayTemplateToAdf(template, hostIssueKey, statusText, expirationDateStr, mentions, parentPriority) {
   const mentionList = Array.isArray(mentions) ? mentions.filter((m) => m && m.accountId) : [];
   let text = String(template);
   text = text.replace(/\{\{issueKey\}\}/g, hostIssueKey ?? '');
   text = text.replace(/\{\{slaStatus\}\}/g, statusText ?? '');
+  text = text.replace(/\{\{priority\}\}/g, parentPriority ?? '—');
   text = text.replace(/\{\{expiryDate\}\}/g, expirationDateStr ?? '');
   const paragraphs = text.split(/\n\n+/).filter((p) => p.trim() !== '');
   const content = [];
@@ -728,10 +812,11 @@ function relayTemplateToAdf(template, hostIssueKey, statusText, expirationDateSt
 /**
  * Build plain text from relay template for Slack. Same vars as relayTemplateToAdf; {{assignee}} → @Name list.
  */
-function relayTemplateToPlainText(template, hostIssueKey, statusText, expirationDateStr, mentions) {
+function relayTemplateToPlainText(template, hostIssueKey, statusText, expirationDateStr, mentions, parentPriority) {
   let text = String(template);
   text = text.replace(/\{\{issueKey\}\}/g, hostIssueKey ?? '');
   text = text.replace(/\{\{slaStatus\}\}/g, statusText ?? '');
+  text = text.replace(/\{\{priority\}\}/g, parentPriority ?? '—');
   text = text.replace(/\{\{expiryDate\}\}/g, expirationDateStr ?? '');
   const names = Array.isArray(mentions) ? mentions.map((m) => m?.displayName || m?.name || 'user').filter(Boolean) : [];
   text = text.replace(/\{\{assignee\}\}/g, names.length > 0 ? names.map((n) => `@${n}`).join(' ') : '');
@@ -741,17 +826,18 @@ function relayTemplateToPlainText(template, hostIssueKey, statusText, expiration
 /**
  * Build ADF comment body for "Send to linked tickets": uses relayCommentTemplate if set, else default.
  */
-function buildSendToLinkedSlaCommentBody(hostIssueKey, slaStatus, expirationDateStr, mentions, relayTemplate) {
+function buildSendToLinkedSlaCommentBody(hostIssueKey, slaStatus, expirationDateStr, mentions, relayTemplate, parentPriority) {
   const statusText = sendToLinkedStatusLabel(slaStatus);
+  const pri = parentPriority ?? '—';
   if (relayTemplate && String(relayTemplate).trim() !== '') {
-    return relayTemplateToAdf(relayTemplate, hostIssueKey, statusText, expirationDateStr, mentions);
+    return relayTemplateToAdf(relayTemplate, hostIssueKey, statusText, expirationDateStr, mentions, pri);
   }
   const content = [
     { type: 'text', text: 'Linked ticket ', marks: [] },
     { type: 'text', text: hostIssueKey, marks: [{ type: 'strong' }] },
     { type: 'text', text: ' SLA is now ', marks: [] },
     { type: 'text', text: statusText, marks: [{ type: 'strong' }] },
-    { type: 'text', text: '. The date of expiration: ', marks: [] },
+    { type: 'text', text: `. Priority: ${pri}. The date of expiration: `, marks: [] },
     { type: 'text', text: expirationDateStr, marks: [] },
     { type: 'text', text: ' ', marks: [] },
   ];
@@ -776,14 +862,15 @@ function buildSendToLinkedSlaCommentBody(hostIssueKey, slaStatus, expirationDate
 /**
  * Build plain text for Slack: uses relayCommentTemplate if set, else default.
  */
-function buildSendToLinkedSlackText(hostIssueKey, slaStatus, expirationDateStr, mentions, relayTemplate) {
+function buildSendToLinkedSlackText(hostIssueKey, slaStatus, expirationDateStr, mentions, relayTemplate, parentPriority) {
   const statusText = sendToLinkedStatusLabel(slaStatus);
+  const pri = parentPriority ?? '—';
   if (relayTemplate && String(relayTemplate).trim() !== '') {
-    return relayTemplateToPlainText(relayTemplate, hostIssueKey, statusText, expirationDateStr, mentions);
+    return relayTemplateToPlainText(relayTemplate, hostIssueKey, statusText, expirationDateStr, mentions, pri);
   }
   const names = Array.isArray(mentions) ? mentions.map((m) => m?.displayName || m?.name || 'user').filter(Boolean) : [];
   const mentionStr = names.length > 0 ? names.map((n) => `@${n}`).join(' ') + ' ' : '';
-  return `Linked ticket ${hostIssueKey} SLA is now ${statusText}. The date of expiration: ${expirationDateStr}. ${mentionStr}`.trim();
+  return `Linked ticket ${hostIssueKey} SLA is now ${statusText}. Priority: ${pri}. The date of expiration: ${expirationDateStr}. ${mentionStr}`.trim();
 }
 
 /**
@@ -844,23 +931,25 @@ function buildLinkedIssueNoticeCommentBody(currentIssueKey, mentions) {
  * issueKeyWithSla = parent issue key; mentions = linked ticket's people.
  */
 function buildSlaAlertCommentBody(issueKeyWithSla, slaStatus, mentions, opts = {}) {
-  const { slaName = '', remainingTime = '', customTemplate } = opts;
+  const { slaName = '', remainingTime = '', customTemplate, priority = '—' } = opts;
   const statusText = slaStatus === 'breached' ? 'breached' : (slaStatus === 'at_risk' ? 'at risk' : slaStatus);
   const vars = {
     issueKey: issueKeyWithSla,
     slaName: slaName || 'SLA',
     remainingTime: remainingTime || (slaStatus === 'breached' ? 'Overdue' : '—'),
     status: statusText,
+    priority: priority || '—',
   };
   if (customTemplate && String(customTemplate).trim() !== '') {
     return templateToAdf(customTemplate, vars, mentions);
   }
+  const pri = vars.priority || '—';
   const content = [
     { type: 'text', text: 'Parent ticket ' },
     { type: 'text', text: issueKeyWithSla, marks: [{ type: 'strong' }] },
     { type: 'text', text: "'s SLA is now " },
     { type: 'text', text: statusText, marks: [{ type: 'strong' }] },
-    { type: 'text', text: '. ' },
+    { type: 'text', text: `. Ticket Priority: ${pri}. ` },
   ];
   if (Array.isArray(mentions) && mentions.length > 0) {
     for (const m of mentions) {
@@ -883,7 +972,7 @@ function buildSlaAlertCommentBody(issueKeyWithSla, slaStatus, mentions, opts = {
 }
 
 /**
- * Convert a template string with {{variables}} into ADF. Supports {{issueKey}}, {{slaName}}, {{remainingTime}}, {{status}}, {{assignee}}.
+ * Convert a template string with {{variables}} into ADF. Supports {{issueKey}}, {{slaName}}, {{remainingTime}}, {{status}}, {{priority}}, {{assignee}}.
  * {{assignee}} is replaced with one or more ADF mention nodes. mentions = [{ accountId, displayName }, ...] (parent issue assignee, reporter, watchers as configured).
  */
 function templateToAdf(template, vars, mentions) {
@@ -893,6 +982,7 @@ function templateToAdf(template, vars, mentions) {
   text = text.replace(/\{\{slaName\}\}/g, vars.slaName ?? '');
   text = text.replace(/\{\{remainingTime\}\}/g, vars.remainingTime ?? '');
   text = text.replace(/\{\{status\}\}/g, vars.status ?? '');
+  text = text.replace(/\{\{priority\}\}/g, vars.priority ?? '—');
   const paragraphs = text.split(/\n\n+/).filter((p) => p.trim() !== '');
   const content = [];
   for (const para of paragraphs) {
@@ -1140,6 +1230,7 @@ function buildPlainTextMessage(template, vars, mentions) {
   text = text.replace(/\{\{slaName\}\}/g, vars.slaName ?? '');
   text = text.replace(/\{\{remainingTime\}\}/g, vars.remainingTime ?? '');
   text = text.replace(/\{\{status\}\}/g, vars.status ?? '');
+  text = text.replace(/\{\{priority\}\}/g, vars.priority ?? '—');
   const names = Array.isArray(mentions) ? mentions.map((m) => m?.displayName || m?.name || 'user').filter(Boolean) : [];
   text = text.replace(/\{\{assignee\}\}/g, names.length > 0 ? names.join(', ') : '');
   return text.replace(/\n\n+/g, '\n').trim();
@@ -1346,7 +1437,16 @@ async function sendEmailWebhook(webhookUrl, payload) {
  * When the parent ticket's SLA is at-risk or breached, post a comment on the linked ticket about the parent's SLA
  * and @mention the linked ticket's people. Comment is posted on linkedIssueKey; message is about parentIssueKey's SLA.
  */
-async function maybeCommentOnSlaChange(jira, parentIssueKey, parentSla, linkedIssueKey, linkedStatusCategory, mentionPeople, forcePost = false) {
+async function maybeCommentOnSlaChange(
+  jira,
+  parentIssueKey,
+  parentSla,
+  linkedIssueKey,
+  linkedStatusCategory,
+  mentionPeople,
+  forcePost = false,
+  parentPriorityLabel = '—'
+) {
   const slaStatus = parentSla?.status;
   if (slaStatus !== 'at_risk' && slaStatus !== 'breached') return;
   const config = await getAdminConfig();
@@ -1376,6 +1476,7 @@ async function maybeCommentOnSlaChange(jira, parentIssueKey, parentSla, linkedIs
       slaName: slaLabel || 'SLA',
       remainingTime: remainingTimeStr,
       customTemplate: config.customTemplate || null,
+      priority: parentPriorityLabel,
     });
     if (config.notificationComment) {
       const res = await jira(route`/rest/api/3/issue/${linkedIssueKey}/comment`, {
@@ -1389,9 +1490,15 @@ async function maybeCommentOnSlaChange(jira, parentIssueKey, parentSla, linkedIs
       }
       console.log('[SLA Link Inspector] Resolver: added parent SLA alert comment on linked', linkedIssueKey, slaStatus);
     }
-    const vars = { issueKey: parentIssueKey, slaName: slaLabel || 'SLA', remainingTime: remainingTimeStr, status: slaStatus === 'breached' ? 'breached' : 'at risk' };
+    const vars = {
+      issueKey: parentIssueKey,
+      slaName: slaLabel || 'SLA',
+      remainingTime: remainingTimeStr,
+      status: slaStatus === 'breached' ? 'breached' : 'at risk',
+      priority: parentPriorityLabel,
+    };
     const plainText = buildPlainTextMessage(config.customTemplate || null, vars, mentions);
-    const defaultMsg = `Parent ticket ${parentIssueKey}'s SLA is now ${vars.status}. Time remaining: ${remainingTimeStr}.`;
+    const defaultMsg = `Parent ticket ${parentIssueKey}'s SLA is now ${vars.status}. Ticket Priority: ${parentPriorityLabel}. Time remaining: ${remainingTimeStr}.`;
     const messageForChannels = plainText || defaultMsg;
     const slackParams = getSlackSendParams(config);
     if (config.notificationSlack && slackParams) {
@@ -1429,6 +1536,7 @@ async function maybeCommentOnSlaChange(jira, parentIssueKey, parentSla, linkedIs
         status: vars.status,
         slaName: vars.slaName,
         remainingTime: remainingTimeStr,
+        parentPriority: parentPriorityLabel,
         recipients: mentions.map((m) => ({ accountId: m.accountId, displayName: m.displayName || m.name })),
         message: messageForChannels,
         subject: `SLA ${vars.status}: ${parentIssueKey}`,
@@ -1524,7 +1632,7 @@ resolver.define('testFireSlaComment', async ({ payload }) => {
   try {
     const jira = api.asApp().requestJira.bind(api.asApp());
     const slaField = await getSlaFieldForRequest();
-    const parentFieldsParam = ['summary', 'status'];
+    const parentFieldsParam = ['summary', 'status', 'priority'];
     if (slaField?.id) parentFieldsParam.push(slaField.id);
     const parentFieldsQuery = parentFieldsParam.join(',');
     const cfg = await getAdminConfig();
@@ -1543,7 +1651,8 @@ resolver.define('testFireSlaComment', async ({ payload }) => {
     }
     const linkedStatusCategory = linkedIssue.fields?.status?.statusCategory?.key ?? null;
     const linkedPeople = await buildMentionPeopleFromIssue(jira, linkedIssueKey, cfg, resolvedNotifyFields);
-    await maybeCommentOnSlaChange(jira, parentIssueKey, parentSla, linkedIssueKey, linkedStatusCategory, linkedPeople, true);
+    const parentPri = formatParentPriority(parentIssue.fields?.priority);
+    await maybeCommentOnSlaChange(jira, parentIssueKey, parentSla, linkedIssueKey, linkedStatusCategory, linkedPeople, true, parentPri);
     return { ok: true, message: `Comment posted on linked ticket ${linkedIssueKey} (parent ${parentIssueKey} SLA: ${parentSla.status}).` };
   } catch (e) {
     console.error('[SLA Link Inspector] testFireSlaComment error', e.message);
@@ -1715,6 +1824,7 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
       return { ok: false, error: `Failed to load current issue SLA: ${currentRes.status}`, posted: [], failed: [] };
     }
     const currentIssue = await currentRes.json();
+    const relayParentPriority = formatParentPriority(currentIssue.fields?.priority);
     let currentSla = getSlaData(currentIssue.fields, slaField);
     const hasSlaFromFields = currentSla.status !== 'none' || (currentSla.label != null && !String(currentSla.label).toLowerCase().includes('no sla'));
     if (!hasSlaFromFields) {
@@ -1743,7 +1853,14 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
         const mentions = [];
         if (assignee?.accountId) mentions.push({ accountId: assignee.accountId, displayName: assignee.displayName || assignee.name });
         if (reporter?.accountId && reporter.accountId !== assignee?.accountId) mentions.push({ accountId: reporter.accountId, displayName: reporter.displayName || reporter.name });
-        const body = buildSendToLinkedSlaCommentBody(currentIssueKey, currentSla.status, expirationDateStr, mentions, relayTemplate);
+        const body = buildSendToLinkedSlaCommentBody(
+          currentIssueKey,
+          currentSla.status,
+          expirationDateStr,
+          mentions,
+          relayTemplate,
+          relayParentPriority
+        );
         const commentRes = await jira(route`/rest/api/3/issue/${linkedKey}/comment`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -1768,7 +1885,8 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
       currentSla.status,
       expirationDateStr,
       [],
-      relayTemplate
+      relayTemplate,
+      relayParentPriority
     );
     if (posted.length > 0) {
       const baseUrl = await getJiraBaseUrl(jira);
@@ -1862,7 +1980,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
 
     const configEarly = await getAdminConfig();
     const resolvedNotifyFields = new Map();
-    const parentFieldsParam = ['issuelinks'];
+    const parentFieldsParam = ['issuelinks', 'priority'];
     if (slaFieldId) parentFieldsParam.push(slaFieldId);
     const parentFieldsQuery = parentFieldsParam.join(',');
     const issueRes = await jira(
@@ -1875,6 +1993,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
     }
 
     const issueData = await issueRes.json();
+    const parentPriorityStr = formatParentPriority(issueData.fields?.priority);
     const parentSla = getSlaData(issueData.fields, slaField);
     let slaForPanel = parentSla;
     const hasSlaFromFields =
@@ -1967,7 +2086,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
       if (linked.error) continue;
       const linkedPeople = await buildMentionPeopleFromIssue(jira, linked.key, configEarly, resolvedNotifyFields);
       try {
-        await maybeCommentOnSlaChange(jira, safeIssueKey, parentSla, linked.key, linked.statusCategory, linkedPeople);
+        await maybeCommentOnSlaChange(jira, safeIssueKey, parentSla, linked.key, linked.statusCategory, linkedPeople, false, parentPriorityStr);
       } catch (e) {
         console.error('[SLA Link Inspector] Resolver: storage/comment error for', linked.key, e.message);
       }
@@ -1976,32 +2095,42 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
     const config = await getAdminConfig();
     const hrParent = parentSla?.hoursRemaining;
     const thresholds = normalizeTimeLeftWarningThresholds(config.timeLeftWarningThresholds);
-    if (config.timeLeftWarningsEnabled && thresholds.length > 0 && hrParent != null && hrParent > 0) {
+    if (config.timeLeftWarningsEnabled && thresholds.length > 0 && hrParent != null) {
       const slaName = parentSla?.label || parentSla?.sla || 'SLA';
       for (const th of thresholds) {
         const maxHours = th.hours;
-        if (hrParent > maxHours) continue;
-        const hKey = String(th.hours).replace(/\./g, 'p');
-        const warnKvsKey = `${SLA_STATUS_STORAGE_PREFIX}warningTh:${hKey}:${safeIssueKey}`;
+        const isBreachedThreshold = maxHours < 0;
+        if (isBreachedThreshold) {
+          if (hrParent > maxHours) continue;
+        } else {
+          if (hrParent <= 0 || hrParent > maxHours) continue;
+        }
+        const recipientsKey = th.recipients === 'breached' ? 'breached' : 'at_risk';
+        const hKey = String(maxHours).replace(/\./g, 'p').replace(/-/g, 'n');
+        const warnKvsKey = `${SLA_STATUS_STORAGE_PREFIX}warningTh:${hKey}:${recipientsKey}:${safeIssueKey}`;
         try {
           const already = await kvs.get(warnKvsKey);
           if (already) continue;
           await kvs.set(warnKvsKey, 'sent');
-          const remainingTimeStr = formatHours(hrParent) + ' left';
-          const statusLabel = `≤${timeLeftWarningStatusLabel(th.amount, th.unit)} (warning)`;
+          const remainingTimeStr =
+            hrParent > 0 ? formatHours(hrParent) + ' left' : formatHours(-hrParent) + ' overdue';
+          const statusLabel = isBreachedThreshold ? 'breached' : 'in range';
           const template =
-            config.customTemplate || `Linked ticket {{issueKey}}: parent SLA ${statusLabel}. {{assignee}} please review.`;
+            config.customTemplate ||
+            `Linked ticket {{issueKey}}: parent SLA in range. Ticket Priority: {{priority}}. {{assignee}} please review.`;
           const varsWarn = {
             issueKey: safeIssueKey,
             slaName,
             remainingTime: remainingTimeStr,
             status: statusLabel,
+            priority: parentPriorityStr,
           };
           for (const linked of linkedIssues) {
             if (linked.error) continue;
             if (config.onlyNotifyIfOpen && linked.statusCategory === 'done') continue;
             const linkedPeopleW = await buildMentionPeopleFromIssue(jira, linked.key, config, resolvedNotifyFields);
-            const mentionsW = buildMentionsForTrigger(config, 'at_risk', linkedPeopleW);
+            const triggerForThresholds = recipientsKey;
+            const mentionsW = buildMentionsForTrigger(config, triggerForThresholds, linkedPeopleW);
             const commentMentionsW = config.notificationMention ? mentionsW : [];
             const adfBody = templateToAdf(template, varsWarn, commentMentionsW);
             if (config.notificationComment) {
@@ -2015,7 +2144,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
             }
             const plainW =
               buildPlainTextMessage(config.customTemplate || null, varsWarn, mentionsW) ||
-              `Parent ticket ${safeIssueKey} SLA: ${statusLabel}.`;
+              `Parent ticket ${safeIssueKey} SLA: ${statusLabel}. Ticket Priority: ${parentPriorityStr}.`;
             const slackParamsW = getSlackSendParams(config);
             if (config.notificationSlack && slackParamsW) {
               if (slackParamsW.method === 'webhook') await sendSlackNotification(slackParamsW.webhookUrl, plainW);
@@ -2056,6 +2185,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
                 status: statusLabel,
                 slaName: varsWarn.slaName,
                 remainingTime: remainingTimeStr,
+                parentPriority: parentPriorityStr,
                 recipients: mentionsW.map((m) => ({ accountId: m.accountId, displayName: m.displayName || m.name })),
                 message: plainW,
                 subject: `SLA warning (${safeIssueKey}): ${statusLabel}`,

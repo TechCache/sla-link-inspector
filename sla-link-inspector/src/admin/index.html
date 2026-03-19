@@ -8,10 +8,10 @@
 <body>
   <div id="app">
     <h1>SLA alert settings</h1>
-    <p class="subtitle">Alerts use the <strong>parent</strong> ticket’s SLA. Comments and @mentions go on <strong>linked</strong> tickets.</p>
 
     <div class="mental-model" role="note">
       <strong>How it works</strong>
+      <p class="mental-model-intro">Alerts use the <strong>parent</strong> ticket's SLA. Comments and @mentions go on <strong>linked</strong> tickets.</p>
       <ul class="mental-model-list">
         <li><strong>Triggers</strong> — The parent ticket’s SLA (at risk, breached, or low time left).</li>
         <li><strong>Recipients</strong> — Who to @mention on each linked ticket.</li>
@@ -32,25 +32,29 @@
 
     <!-- 2 · When alerts fire -->
     <section class="config-section ia-triggers">
-      <h2 class="ia-h2"><span class="ia-num">2</span> When to alert</h2>
-      <p class="hint ia-lead">When the <strong>parent</strong> SLA hits these states:</p>
-      <label class="checkbox-label"><input type="checkbox" id="triggerAtRisk" /> At risk</label>
+      <h2 class="ia-h2"><span class="ia-num">2</span> Alert Triggers &amp; Recipients</h2>
+      <p class="hint ia-lead">Configure when alerts fire and who gets notified on linked tickets.</p>
+      <label class="checkbox-label"><input type="checkbox" id="triggerAtRisk" /> At Risk</label>
       <p class="hint small deemph trigger-at-risk-note">Fires when the parent SLA has <strong>25% or less</strong> of its total time left (not yet breached). Jira may label this “at risk” in the UI.</p>
-      <label class="checkbox-label"><input type="checkbox" id="triggerBreached" /> Breached</label>
-
-      <div class="time-warning-block ia-nested">
-        <h3 class="subsection-title">Time left warnings</h3>
-        <p class="hint small">Uses the same people as <strong>3a</strong> (At Risk).</p>
-        <label class="checkbox-label time-left-warnings-enable">
-          <input type="checkbox" id="timeLeftWarningsEnabled" />
-          Enable time-left warnings on linked tickets
+      <div class="recipients-block recipients-sub-options ia-nested" id="atRiskRecipientsOptions" hidden>
+        <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyAssignee" /> Assignee</label>
+        <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyReporter" /> Reporter</label>
+        <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyWatchers" /> Watchers</label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="atRiskNotifyRequestParticipants" />
+          Request Participants <span class="checkbox-rp-hint deemph">JSM projects only</span>
         </label>
-        <p class="hint small deemph time-left-warnings-explainer">
-          When the parent SLA has <strong>at or below</strong> each threshold, a one-time alert is sent per threshold (separate from At risk / Breached).
-        </p>
-        <div id="timeLeftWarningsRows" class="time-left-warnings-rows" aria-label="Time-left warning thresholds"></div>
-        <button type="button" id="addTimeLeftWarningBtn" class="btn btn-secondary btn-add-time-warning">Add additional warning</button>
-        <p class="hint small field-hint">Each row: amount + <strong>minutes</strong>, <strong>hours</strong>, or <strong>days</strong> (e.g. 30 minutes, 12 hours, 2 days).</p>
+      </div>
+      <label class="checkbox-label"><input type="checkbox" id="triggerBreached" /> Breached</label>
+      <p class="hint small deemph trigger-breached-note">Fires when the parent SLA time has expired.</p>
+      <div class="recipients-block recipients-sub-options ia-nested" id="breachedRecipientsOptions" hidden>
+        <label class="checkbox-label"><input type="checkbox" id="breachedNotifyAssignee" /> Assignee</label>
+        <label class="checkbox-label"><input type="checkbox" id="breachedNotifyReporter" /> Reporter</label>
+        <label class="checkbox-label"><input type="checkbox" id="breachedNotifyWatchers" /> Watchers</label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="breachedNotifyRequestParticipants" />
+          Request Participants <span class="checkbox-rp-hint deemph">JSM projects only</span>
+        </label>
       </div>
 
       <div class="global-modifier">
@@ -62,43 +66,20 @@
       </div>
     </section>
 
-    <div class="recipients-bundle">
-      <div class="recipients-bundle-intro">
-        <strong>Step 3 · Recipients on linked tickets</strong>
-        <p class="hint small bundle-intro-text">Two rule sets — <strong>3a</strong> (At Risk + time warning) and <strong>3b</strong> (Breached). Same controls in each; match or differ as you like.</p>
-      </div>
-    <!-- 3a -->
-    <section class="config-section ia-who recipients-split" id="at-risk-recipients">
-      <h3 class="recipients-split-heading">
-        <span class="ia-num">3a</span>
-        <span class="recipients-split-heading-label">At Risk &amp; time warning</span>
-      </h3>
-      <p class="hint ia-lead recipients-split-lead">Who to @mention when the parent SLA is <strong>at risk</strong>:</p>
-      <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyAssignee" /> Assignee</label>
-      <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyReporter" /> Reporter</label>
-      <label class="checkbox-label"><input type="checkbox" id="atRiskNotifyWatchers" /> Watchers</label>
-      <label class="checkbox-label">
-        <input type="checkbox" id="atRiskNotifyRequestParticipants" />
-        Request Participants <span class="checkbox-rp-hint deemph">JSM projects only</span>
+    <!-- 3 · Warning thresholds -->
+    <section class="config-section ia-triggers">
+      <h2 class="ia-h2"><span class="ia-num">3</span> Warning thresholds</h2>
+      <label class="checkbox-label time-left-warnings-enable">
+        <input type="checkbox" id="timeLeftWarningsEnabled" />
+        Enable warning thresholds on linked tickets
       </label>
+      <p class="hint small deemph time-left-warnings-explainer">
+        A one-time alert fires when the SLA crosses each threshold — before or after breach. Each threshold fires independently. Choose who to notify per row.
+      </p>
+      <div id="timeLeftWarningsRows" class="time-left-warnings-rows" aria-label="Warning thresholds"></div>
+      <button type="button" id="addTimeLeftWarningBtn" class="btn btn-secondary btn-add-time-warning">Add threshold</button>
+      <p class="hint small field-hint">Use a <strong>negative</strong> number to alert when breached (e.g. -1 days = 1 day past due).</p>
     </section>
-
-    <!-- 3b -->
-    <section class="config-section ia-who recipients-split recipients-split-last">
-      <h3 class="recipients-split-heading">
-        <span class="ia-num">3b</span>
-        <span class="recipients-split-heading-label">Breached</span>
-      </h3>
-      <p class="hint ia-lead recipients-split-lead">Who to @mention when the parent SLA is <strong>breached</strong>:</p>
-      <label class="checkbox-label"><input type="checkbox" id="breachedNotifyAssignee" /> Assignee</label>
-      <label class="checkbox-label"><input type="checkbox" id="breachedNotifyReporter" /> Reporter</label>
-      <label class="checkbox-label"><input type="checkbox" id="breachedNotifyWatchers" /> Watchers</label>
-      <label class="checkbox-label">
-        <input type="checkbox" id="breachedNotifyRequestParticipants" />
-        Request Participants <span class="checkbox-rp-hint deemph">JSM projects only</span>
-      </label>
-    </section>
-    </div>
 
     <!-- 4 · Where (delivery) -->
     <section class="config-section ia-delivery">
@@ -136,7 +117,7 @@
           <div class="slack-option-card slack-card-dm">
             <p class="slack-card-title">Direct messages via bot</p>
             <p class="hint small deemph">DMs match Jira users to Slack by email.</p>
-            <label class="checkbox-label"><input type="checkbox" id="notificationSlackDm" /> DM people selected in step 3 on each linked ticket</label>
+            <label class="checkbox-label"><input type="checkbox" id="notificationSlackDm" /> DM recipients configured above</label>
             <label class="field-label dm-extra-label" for="notificationSlackDmEmails">Always notify these emails (all tickets)</label>
             <textarea id="notificationSlackDmEmails" class="text-input" rows="2" placeholder="Comma or line-separated addresses" style="margin-top: 6px; max-width: 400px; resize: vertical;"></textarea>
             <p class="hint small deemph dm-global-hint">These addresses receive a DM for <strong>every</strong> SLA alert, regardless of which ticket triggers it. Use for team leads or on-call contacts who monitor all SLAs.</p>
@@ -148,8 +129,8 @@
         </div>
       </div>
 
-      <div class="delivery-block delivery-block-email">
-        <h3 class="delivery-block-title">Email</h3>
+      <div class="delivery-method-card delivery-method-card-email">
+        <h3 class="delivery-method-card-title">Email</h3>
         <p class="hint small deemph">Use Zapier or Make to forward into your inbox.</p>
         <label class="checkbox-label block-label"><input type="checkbox" id="notificationEmail" /> Send to email webhook</label>
         <label class="field-label" for="emailWebhookUrl">Webhook URL</label>
@@ -203,7 +184,7 @@
           </tr>
           <tr>
             <td><strong>Manual send</strong></td>
-            <td>Panel action “Send SLA to linked tickets” (+ Slack if on)</td>
+            <td>Panel action “Send SLA Alert” (+ Slack if on)</td>
           </tr>
         </tbody>
       </table>
@@ -215,27 +196,23 @@
         <li><code>{{issueKey}}</code> — parent (SLA ticket)</li>
         <li><code>{{slaName}}</code> — SLA name</li>
         <li><code>{{remainingTime}}</code> — e.g. 9d left</li>
-        <li><code>{{status}}</code> — at risk / breached / N min left</li>
-        <li><code>{{assignee}}</code> — @mentions (step 3: assignee, reporter, watchers, Request Participants)</li>
+        <li><code>{{status}}</code> — at risk / breached / in range</li>
+        <li><code>{{priority}}</code> — ticket priority (e.g. High)</li>
+        <li><code>{{assignee}}</code> — @mentions configured in Alert Triggers &amp; Recipients</li>
       </ul>
       <textarea id="customTemplate" class="template-input" rows="10" placeholder="Leave empty to use the default message."></textarea>
       <p class="hint small field-hint template-tip-separator deemph">~500 characters or less reads well in Jira.</p>
 
       <h3 class="subsection-title template-manual-title" style="margin-top: 20px;">Manual send</h3>
-      <p class="hint small deemph">When someone uses “Send SLA to linked tickets” on an issue.</p>
+      <p class="hint small deemph">When someone uses “Send SLA Alert” on an issue.</p>
       <p class="hint label-tight">Placeholders</p>
       <ul class="vars-list compact-vars">
         <li><code>{{issueKey}}</code> — parent SLA ticket</li>
         <li><code>{{slaStatus}}</code> — At-Risk / Breached / in range</li>
+        <li><code>{{priority}}</code> — parent SLA ticket priority</li>
         <li><code>{{expiryDate}}</code> — expiry</li>
-        <li><code>{{assignee}}</code> — linked assignee/reporter</li>
+        <li><code>{{assignee}}</code> — @mentions configured in Alert Triggers &amp; Recipients</li>
       </ul>
-      <p class="hint small"><strong>Example</strong></p>
-      <pre class="template-example" aria-hidden="true">Linked ticket {{issueKey}} SLA is now {{slaStatus}}.
-
-The date of expiration: {{expiryDate}}.
-
-{{assignee}}</pre>
       <textarea id="relayCommentTemplate" class="template-input" rows="6" placeholder="Leave empty to use the default message."></textarea>
       <p class="hint small field-hint deemph">~500 characters or less reads well in Jira.</p>
     </section>

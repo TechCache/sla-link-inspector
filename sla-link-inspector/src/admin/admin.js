@@ -4,6 +4,7 @@ const CONFIG_KEYS = [
   'slaFieldId',
   'triggerAtRisk',
   'triggerBreached',
+  'timeLeftWarningsEnabled',
   'onlyNotifyIfOpen',
   'atRiskNotifyAssignee',
   'atRiskNotifyReporter',
@@ -43,15 +44,15 @@ function updateTimeLeftRowConstraints(row) {
   if (!inp || !sel) return;
   const u = sel.value;
   if (u === 'minutes') {
-    inp.min = 1;
+    inp.min = -525600;
     inp.max = 525600;
     inp.step = 1;
   } else if (u === 'hours') {
-    inp.min = 0.02;
+    inp.min = -8760;
     inp.max = 8760;
     inp.step = 'any';
   } else {
-    inp.min = 0.01;
+    inp.min = -365;
     inp.max = 365;
     inp.step = 'any';
   }
@@ -78,32 +79,40 @@ function syncTimeLeftWarningRemoveButtons() {
   });
 }
 
-function createTimeLeftWarningRow(amount, unit, isAdditional) {
+function createTimeLeftWarningRow(amount, unit, isAdditional, recipients) {
   const row = document.createElement('div');
   row.className = 'time-warning-row';
   const u = ['minutes', 'hours', 'days'].includes(unit) ? unit : 'days';
   let a = Number(amount);
-  if (!Number.isFinite(a) || a <= 0) {
+  if (!Number.isFinite(a) || a === 0) {
     a = u === 'minutes' ? 60 : u === 'hours' ? 12 : 1;
   }
+  const rec = recipients === 'breached' ? 'breached' : 'at_risk';
   const removeBtnHtml = isAdditional
     ? '<button type="button" class="btn btn-secondary btn-remove-time-warning">Remove</button>'
     : '';
   row.innerHTML = `
-    <span class="time-warning-row-label">Warn when ≤</span>
+    <span class="time-warning-row-label">Alert at</span>
     <input type="number" class="text-input time-left-amount-input" />
     <select class="text-input time-left-unit-select" aria-label="Time unit">
       <option value="minutes">minutes</option>
       <option value="hours">hours</option>
       <option value="days">days</option>
     </select>
-    <span class="time-warning-row-suffix">left</span>
+    <span class="time-warning-row-suffix">· notify</span>
+    <select class="text-input time-left-recipients-select" aria-label="Who to notify for this threshold">
+      <option value="at_risk">at risk</option>
+      <option value="breached">breached</option>
+    </select>
+    <span class="time-warning-row-suffix">recipients</span>
     ${removeBtnHtml}
   `;
   const inp = row.querySelector('.time-left-amount-input');
   const sel = row.querySelector('.time-left-unit-select');
+  const recSel = row.querySelector('.time-left-recipients-select');
   inp.value = u === 'minutes' ? String(Math.round(a)) : String(a);
   sel.value = u;
+  if (recSel) recSel.value = rec;
   updateTimeLeftRowConstraints(row);
   sel.addEventListener('change', () => updateTimeLeftRowConstraints(row));
   const removeBtn = row.querySelector('.btn-remove-time-warning');
@@ -119,11 +128,12 @@ function createTimeLeftWarningRow(amount, unit, isAdditional) {
 function renderTimeLeftWarningRows(thresholds) {
   if (!timeLeftWarningsRowsEl) return;
   timeLeftWarningsRowsEl.innerHTML = '';
-  const list = Array.isArray(thresholds) && thresholds.length > 0 ? thresholds : [{ amount: 1, unit: 'days' }];
+  const list = Array.isArray(thresholds) && thresholds.length > 0 ? thresholds : [{ amount: 1, unit: 'days', recipients: 'at_risk' }];
   list.forEach((t, index) => {
     const amount = t.amount != null ? t.amount : 1;
     const unit = t.unit || 'days';
-    timeLeftWarningsRowsEl.appendChild(createTimeLeftWarningRow(amount, unit, index > 0));
+    const recipients = t.recipients === 'breached' ? 'breached' : 'at_risk';
+    timeLeftWarningsRowsEl.appendChild(createTimeLeftWarningRow(amount, unit, index > 0, recipients));
   });
 }
 
@@ -134,8 +144,10 @@ function collectTimeLeftWarningThresholds() {
   rows.forEach((row) => {
     const amount = parseFloat(row.querySelector('.time-left-amount-input').value);
     const unit = row.querySelector('.time-left-unit-select').value;
+    const recSel = row.querySelector('.time-left-recipients-select');
+    const recipients = recSel && recSel.value === 'breached' ? 'breached' : 'at_risk';
     if (!Number.isFinite(amount)) return;
-    out.push({ amount, unit });
+    out.push({ amount, unit, recipients });
   });
   return out;
 }
@@ -161,6 +173,15 @@ function updateSlackVisibility() {
   if (!slackSubOptions) return;
   const enabled = Boolean(slackCheckbox && slackCheckbox.checked);
   slackSubOptions.hidden = !enabled;
+}
+
+function updateRecipientsVisibility() {
+  const atRiskOpts = document.getElementById('atRiskRecipientsOptions');
+  const breachedOpts = document.getElementById('breachedRecipientsOptions');
+  const atRiskChecked = Boolean(getCheckbox('triggerAtRisk')?.checked);
+  const breachedChecked = Boolean(getCheckbox('triggerBreached')?.checked);
+  if (atRiskOpts) atRiskOpts.hidden = !atRiskChecked;
+  if (breachedOpts) breachedOpts.hidden = !breachedChecked;
 }
 
 /** Bot token needed when DMs are on, or channel posts use bot (channel ID without webhook). */
@@ -286,6 +307,7 @@ async function load() {
     renderTimeLeftWarningRows(config.timeLeftWarningThresholds);
     const tle = document.getElementById('timeLeftWarningsEnabled');
     if (tle) tle.checked = Boolean(config.timeLeftWarningsEnabled);
+    updateRecipientsVisibility();
     updateSlackVisibility();
     updateSlackBotSetupVisibility();
   } catch (e) {
@@ -307,7 +329,7 @@ document.getElementById('addTimeLeftWarningBtn')?.addEventListener('click', () =
       else amount = Math.max(unit === 'days' ? 0.01 : 0.02, Math.round((a / 2) * 1000) / 1000);
     }
   }
-  timeLeftWarningsRowsEl.appendChild(createTimeLeftWarningRow(amount, unit, true));
+  timeLeftWarningsRowsEl.appendChild(createTimeLeftWarningRow(amount, unit, true, 'at_risk'));
 });
 
 async function save() {
@@ -333,6 +355,8 @@ saveBtn.addEventListener('click', save);
 hideFeedback();
 load();
 
+getCheckbox('triggerAtRisk')?.addEventListener('change', updateRecipientsVisibility);
+getCheckbox('triggerBreached')?.addEventListener('change', updateRecipientsVisibility);
 getCheckbox('notificationSlack')?.addEventListener('change', () => {
   updateSlackVisibility();
   updateSlackBotSetupVisibility();
