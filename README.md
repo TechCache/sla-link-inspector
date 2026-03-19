@@ -93,6 +93,8 @@ To send Slack DMs by matching Jira users to Slack members, the app needs each us
 
 **If logs show `GET /user/email/bulk` with `bodySnippet=[]`:** Jira returned **no unrestricted email rows** for that account. That is controlled by **Atlassian account privacy**, **site membership**, and **org policy**—the app cannot override it. **Always notify these emails** in app settings is an optional way to include fixed addresses in addition to Jira-derived recipients.
 
+**Slack member ID mapping (no Jira email required):** In **app admin → Slack → Direct Messages**, you can list **Jira `accountId` → Slack member ID** (`U…`) one per line. Each user can also save their own ID from the **issue panel** (“Slack DM fallback”). DMs then use `conversations.open` by member ID (`im:write`); **`users:read.email` is not required** for those users.
+
 See Atlassian’s [Profile visibility and apps](https://developer.atlassian.com/cloud/jira/platform/profile-visibility/), [Get user email](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-users/#api-rest-api-3-user-email-get), and [Get bulk users](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-users/#api-rest-api-3-user-bulk-get).
 
 See the full [privacy policy](https://techcache.github.io/privacy).
