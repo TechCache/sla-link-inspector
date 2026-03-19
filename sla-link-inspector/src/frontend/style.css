@@ -403,6 +403,128 @@ h1 {
   color: #dc2626;
 }
 
+/* Slack DM fallback — progressive disclosure */
+.slack-self-link-section.slack-dm-fallback-disclosure {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #dfe1e6;
+  font-size: 12px;
+  color: #42526e;
+}
+
+.slack-dm-fallback-trigger {
+  display: block;
+  width: 100%;
+  font-size: 12px;
+  color: #4a9eff;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.slack-dm-fallback-trigger:hover {
+  text-decoration: underline;
+}
+
+.slack-dm-fallback-trigger--linked {
+  color: #16a34a;
+}
+
+.slack-dm-fallback-panel {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 250ms ease;
+}
+
+.slack-dm-fallback-disclosure.is-expanded .slack-dm-fallback-panel {
+  max-height: 500px;
+}
+
+.slack-dm-fallback-panel-inner {
+  padding-top: 10px;
+}
+
+.slack-dm-fallback-title {
+  margin: 0 0 8px 0;
+  line-height: 1.45;
+}
+
+.slack-dm-fallback-desc {
+  margin: 0 0 10px 0;
+  line-height: 1.45;
+  color: #42526e;
+}
+
+.slack-dm-fallback-desc a {
+  color: #0052cc;
+}
+
+.slack-dm-fallback-close {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #4a9eff;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+}
+
+.slack-dm-fallback-close:hover {
+  text-decoration: underline;
+}
+
+.slack-self-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.slack-self-link-input {
+  flex: 1;
+  min-width: 160px;
+  max-width: 280px;
+  padding: 6px 8px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.slack-self-link-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 3px;
+  border: none;
+  background: #0052cc;
+  color: #fff;
+  cursor: pointer;
+}
+
+.slack-self-link-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.slack-self-link-btn-secondary {
+  background: #f4f5f7;
+  color: #172b4d;
+  border: 1px solid #dfe1e6;
+}
+
+.slack-self-link-status {
+  margin: 4px 0 0 0;
+  font-size: 11px;
+  color: #6b778c;
+}
+
 .panel-footer {
   margin-top: 16px;
   padding-top: 12px;

@@ -329,10 +329,243 @@ async function run() {
     renderSlaStatus(result.panelSla);
     renderLinkedCount(linkedIssues.length);
     renderSendPanel(linkedIssues, result.issueKey ?? issueKey, licensed);
+    void renderSlackSelfLinkSection(licensed);
   } catch (err) {
     console.error('[Linked SLA Alerts] error:', err.message || err);
     showError(err.message || 'Failed to load linked issues.');
   }
+}
+
+/**
+ * Optional: map this Jira user to a Slack member ID (progressive disclosure).
+ */
+async function renderSlackSelfLinkSection(licensed) {
+  const host = document.getElementById('slack-self-link-section');
+  if (!host) return;
+  host.hidden = false;
+  host.innerHTML = '';
+  host.className = 'slack-self-link-section slack-dm-fallback-disclosure';
+
+  let st = null;
+  try {
+    if (licensed) {
+      st = await invoke('getSlackLinkStatus');
+    }
+  } catch (_) {
+    st = null;
+  }
+
+  const initialLinked = Boolean(licensed && st?.hasSlackMapping);
+  const accountKnown = st?.accountKnown !== false;
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'slack-dm-fallback-trigger';
+
+  const panel = document.createElement('div');
+  panel.className = 'slack-dm-fallback-panel';
+
+  const panelInner = document.createElement('div');
+  panelInner.className = 'slack-dm-fallback-panel-inner';
+
+  const title = document.createElement('p');
+  title.className = 'slack-dm-fallback-title';
+  title.innerHTML = '<strong>Slack DM Fallback</strong>';
+
+  const desc = document.createElement('p');
+  desc.className = 'slack-dm-fallback-desc';
+  desc.innerHTML =
+    `Jira doesn't always share your email with apps. Paste your <a href="https://api.slack.com/methods/users.lookupByEmail" target="_blank" rel="noopener noreferrer">Slack member ID</a> so this app can DM you directly.`;
+
+  const row = document.createElement('div');
+  row.className = 'slack-self-link-row';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'slack-self-link-input';
+  input.placeholder = 'Your Slack member ID (e.g. U01234ABCDE)';
+  input.setAttribute('aria-label', 'Slack member ID');
+  input.autocomplete = 'off';
+
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'slack-self-link-btn';
+  saveBtn.textContent = 'Save';
+  saveBtn.disabled = !licensed;
+
+  const clearBtn = document.createElement('button');
+  clearBtn.type = 'button';
+  clearBtn.className = 'slack-self-link-btn slack-self-link-btn-secondary';
+  clearBtn.textContent = 'Remove';
+  clearBtn.disabled = !licensed;
+
+  const statusEl = document.createElement('p');
+  statusEl.className = 'slack-self-link-status';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'slack-dm-fallback-close';
+  closeBtn.textContent = '✕ Close';
+
+  row.appendChild(input);
+  row.appendChild(saveBtn);
+  row.appendChild(clearBtn);
+
+  panelInner.appendChild(title);
+  panelInner.appendChild(desc);
+  panelInner.appendChild(row);
+  panelInner.appendChild(statusEl);
+  panelInner.appendChild(closeBtn);
+  panel.appendChild(panelInner);
+
+  host.appendChild(trigger);
+  host.appendChild(panel);
+
+  function setExpanded(on) {
+    host.classList.toggle('is-expanded', on);
+  }
+
+  function updateTrigger(linked) {
+    if (linked && st?.mappingSource === 'admin') {
+      trigger.textContent = 'Slack ID linked ✓ (workspace admin) →';
+      trigger.classList.add('slack-dm-fallback-trigger--linked');
+    } else if (linked) {
+      trigger.textContent = 'Slack ID linked ✓ — update or remove →';
+      trigger.classList.add('slack-dm-fallback-trigger--linked');
+    } else {
+      trigger.textContent = 'Not receiving Slack DMs? Link your Slack ID →';
+      trigger.classList.remove('slack-dm-fallback-trigger--linked');
+    }
+  }
+
+  function applyButtonStateFromSt() {
+    if (!licensed || !accountKnown) {
+      saveBtn.disabled = true;
+      clearBtn.disabled = true;
+      input.disabled = true;
+      return;
+    }
+    if (st?.hasSlackMapping && st.mappingSource === 'admin') {
+      saveBtn.disabled = true;
+      clearBtn.disabled = true;
+      input.disabled = true;
+      input.placeholder = 'Managed in admin settings';
+      return;
+    }
+    saveBtn.disabled = false;
+    clearBtn.disabled = false;
+    input.disabled = false;
+    input.placeholder = 'Your Slack member ID (e.g. U01234ABCDE)';
+  }
+
+  function applyStatusFromServer() {
+    if (!licensed) {
+      statusEl.textContent = 'A valid license is required to save this mapping.';
+      applyButtonStateFromSt();
+      return;
+    }
+    if (!accountKnown) {
+      statusEl.textContent = 'Sign in to Jira to link your Slack ID.';
+      applyButtonStateFromSt();
+      return;
+    }
+
+    if (st?.hasSlackMapping && st.mappingSource === 'admin') {
+      statusEl.textContent = `Linked: ${st.slackUserIdMasked} — set by a workspace admin in app settings. It can’t be removed from this panel; ask an admin to delete your line in the Jira → Slack ID mapping.`;
+      applyButtonStateFromSt();
+      return;
+    }
+
+    if (st?.hasSlackMapping && st.slackUserIdMasked) {
+      statusEl.textContent = `Linked: ${st.slackUserIdMasked} (saved from this panel for your Jira account).`;
+    } else {
+      statusEl.textContent = 'No Slack ID saved from this panel for your Jira account yet.';
+    }
+    applyButtonStateFromSt();
+  }
+
+  updateTrigger(initialLinked);
+  applyStatusFromServer();
+  if (initialLinked) {
+    setExpanded(true);
+  }
+
+  trigger.addEventListener('click', () => {
+    setExpanded(!host.classList.contains('is-expanded'));
+  });
+
+  closeBtn.addEventListener('click', () => {
+    setExpanded(false);
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    const v = (input.value || '').trim();
+    if (!v) {
+      if (st?.mappingSource === 'self') {
+        statusEl.textContent = 'Use Remove to clear your saved Slack ID, or enter an ID to replace it.';
+      } else if (st?.mappingSource === 'admin') {
+        statusEl.textContent = 'This mapping is managed by an admin.';
+      } else {
+        statusEl.textContent = 'Enter your Slack member ID.';
+      }
+      return;
+    }
+    saveBtn.disabled = true;
+    clearBtn.disabled = true;
+    try {
+      const res = await invoke('saveMySlackUserId', { slackUserId: v });
+      if (res?.ok) {
+        input.value = '';
+        try {
+          st = await invoke('getSlackLinkStatus');
+        } catch (_) {
+          st = null;
+        }
+        applyStatusFromServer();
+        updateTrigger(Boolean(st?.hasSlackMapping));
+        setExpanded(true);
+      } else {
+        statusEl.textContent = res?.error || 'Could not save.';
+      }
+    } catch (err) {
+      statusEl.textContent = err.message || 'Could not save.';
+    } finally {
+      if (licensed && accountKnown) {
+        applyButtonStateFromSt();
+      }
+    }
+  });
+
+  clearBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    clearBtn.disabled = true;
+    try {
+      const res = await invoke('saveMySlackUserId', { slackUserId: '' });
+      if (res?.ok) {
+        try {
+          st = await invoke('getSlackLinkStatus');
+        } catch (_) {
+          st = null;
+        }
+        if (res.adminMappingStillApplies) {
+          statusEl.textContent =
+            'Removed your personal Slack ID from this panel. A workspace admin still maps your Jira account in app settings, so the link will keep working until they remove that line.';
+        } else {
+          statusEl.textContent = res.cleared ? 'Removed your Slack ID mapping.' : 'Updated.';
+        }
+        updateTrigger(Boolean(st?.hasSlackMapping));
+        applyStatusFromServer();
+      } else {
+        statusEl.textContent = res?.error || 'Could not remove.';
+      }
+    } catch (err) {
+      statusEl.textContent = err.message || 'Could not remove.';
+    } finally {
+      if (licensed && accountKnown) {
+        applyButtonStateFromSt();
+      }
+    }
+  });
 }
 
 function openAdmin() {

@@ -865,3 +865,62 @@ h1 {
 .mention-chip-remove:hover {
   color: #bf2600;
 }
+
+/* Jira → Slack mapping — progressive disclosure */
+.admin-slack-mapping-disclosure {
+  margin-top: 8px;
+}
+
+.admin-slack-mapping-trigger {
+  display: block;
+  width: 100%;
+  max-width: 520px;
+  font-size: 12px;
+  color: #4a9eff;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.admin-slack-mapping-trigger:hover {
+  text-decoration: underline;
+}
+
+.admin-slack-mapping-trigger--active {
+  color: #16a34a;
+}
+
+.admin-slack-mapping-panel {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 250ms ease;
+}
+
+.admin-slack-mapping-disclosure.is-expanded .admin-slack-mapping-panel {
+  max-height: 600px;
+}
+
+.admin-slack-mapping-inner {
+  padding-top: 10px;
+}
+
+.admin-slack-mapping-close {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 12px;
+  color: #4a9eff;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+}
+
+.admin-slack-mapping-close:hover {
+  text-decoration: underline;
+}

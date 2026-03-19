@@ -29,9 +29,18 @@ Even with correct scopes and admin consent:
 
 Those outcomes are **platform-enforced**, not something an app can bypass while staying compliant. The app also reads `emailAddress` from **issue expand** (assignee/reporter/watchers) when Jira includes it there.
 
+## Slack member ID mapping (fallback without Jira email)
+
+When Jira does not return email for an `accountId`, the app can still DM if either:
+
+1. **Admin map** — In settings, **Jira account ID → Slack member ID** (`U…` / `W…`), one per line (tab- or comma-separated).
+2. **Self-service** — From the **issue panel**, each user can save their own Slack member ID (stored in Forge KVS). Admin entries **override** the same Jira `accountId`.
+
+Delivery uses Slack **`conversations.open`** + **`chat.postMessage`**. Scopes: at minimum **`im:write`** and **`chat:write`**; **`users:read.email`** is only needed for recipients resolved by email.
+
 ## QA checklist before submission
 
-1. Install on a **test site** where the assignee’s Atlassian account shares email with apps (see [Profile visibility and apps](https://developer.atlassian.com/cloud/jira/platform/profile-visibility/)).
-2. Confirm Forge logs show a resolved email path (no repeated `Slack DM skipped` for that user).
-3. Slack app: **`users:read.email`** and **`im:write`** (or equivalent) for the bot used in settings.
-4. Document for customers: Slack **channel** posts need webhook or bot token + channel ID; **DMs** need bot token and successful Jira→email resolution as above.
+1. Install on a **test site** where the assignee’s Atlassian account shares email with apps (see [Profile visibility and apps](https://developer.atlassian.com/cloud/jira/platform/profile-visibility/)), **or** map Slack member IDs for test users.
+2. Confirm DMs arrive (email path and/or member-ID path).
+3. Slack app: **`im:write`** and **`chat:write`** for all DMs; add **`users:read.email`** when using email lookup.
+4. Document for customers: Slack **channel** posts need webhook or bot token + channel ID; **DMs** need bot token and either Jira-visible email **or** a Slack member ID mapping.

@@ -152,10 +152,55 @@ function collectTimeLeftWarningThresholds() {
   return out;
 }
 
+/** Parse admin textarea: accountId + tab/comma + Slack member ID per line. */
+function parseSlackUserIdByAccountIdText(text) {
+  const out = {};
+  for (const line of String(text || '').split('\n')) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const parts = t.split(/[\t,|;]+/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      out[parts[0]] = parts[1];
+    }
+  }
+  return out;
+}
+
+function formatSlackUserIdByAccountIdForForm(obj) {
+  if (!obj || typeof obj !== 'object') return '';
+  return Object.entries(obj)
+    .map(([k, v]) => `${k}\t${v}`)
+    .join('\n');
+}
+
+function slackMappingTextareaHasContent() {
+  const ta = document.getElementById('slackUserIdByAccountId');
+  return Boolean(ta && ta.value.trim().length > 0);
+}
+
+function syncSlackMappingDisclosureTrigger() {
+  const trigger = document.getElementById('slackMappingDisclosureTrigger');
+  if (!trigger) return;
+  const has = slackMappingTextareaHasContent();
+  trigger.textContent = has
+    ? 'Jira → Slack ID mapping configured ✓ — edit →'
+    : 'Having trouble with DMs? Set up Jira → Slack ID mapping →';
+  trigger.classList.toggle('admin-slack-mapping-trigger--active', has);
+}
+
+function setSlackMappingDisclosureExpanded(expanded) {
+  const wrap = document.getElementById('slackMappingDisclosure');
+  if (wrap) wrap.classList.toggle('is-expanded', Boolean(expanded));
+}
+
 function buildAdminSavePayload() {
   const payload = finalizeAdminPayload(formToPayload());
   payload.timeLeftWarningsEnabled = Boolean(document.getElementById('timeLeftWarningsEnabled')?.checked);
   payload.timeLeftWarningThresholds = collectTimeLeftWarningThresholds();
+  const mapTa = document.getElementById('slackUserIdByAccountId');
+  if (mapTa) {
+    payload.slackUserIdByAccountId = parseSlackUserIdByAccountIdText(mapTa.value);
+  }
   return payload;
 }
 
@@ -306,6 +351,16 @@ async function load() {
     const testSlackBtnEl = document.getElementById('testSlackBtn');
     if (testSlackBtnEl) testSlackBtnEl.disabled = !isLicensed;
     payloadToForm(config);
+    const mapTa = document.getElementById('slackUserIdByAccountId');
+    if (mapTa) {
+      mapTa.value = formatSlackUserIdByAccountIdForForm(config.slackUserIdByAccountId);
+    }
+    syncSlackMappingDisclosureTrigger();
+    if (slackMappingTextareaHasContent()) {
+      setSlackMappingDisclosureExpanded(true);
+    } else {
+      setSlackMappingDisclosureExpanded(false);
+    }
     renderTimeLeftWarningRows(config.timeLeftWarningThresholds);
     const tle = document.getElementById('timeLeftWarningsEnabled');
     if (tle) tle.checked = Boolean(config.timeLeftWarningsEnabled);
@@ -447,3 +502,17 @@ async function clearSlackToken() {
 
 const clearSlackTokenBtn = document.getElementById('clearSlackTokenBtn');
 if (clearSlackTokenBtn) clearSlackTokenBtn.addEventListener('click', clearSlackToken);
+
+document.getElementById('slackMappingDisclosureTrigger')?.addEventListener('click', () => {
+  const wrap = document.getElementById('slackMappingDisclosure');
+  if (!wrap) return;
+  setSlackMappingDisclosureExpanded(!wrap.classList.contains('is-expanded'));
+});
+
+document.getElementById('slackMappingDisclosureClose')?.addEventListener('click', () => {
+  setSlackMappingDisclosureExpanded(false);
+});
+
+document.getElementById('slackUserIdByAccountId')?.addEventListener('input', () => {
+  syncSlackMappingDisclosureTrigger();
+});

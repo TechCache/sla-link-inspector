@@ -116,16 +116,29 @@
 
           <div class="slack-option-card slack-card-dm">
             <p class="slack-card-title">Direct Messages Via Bot</p>
-            <p class="hint small deemph">DMs match Jira users to Slack by email.</p>
+            <p class="hint small deemph">DMs use Jira email when available, or a configured <strong>Slack member ID</strong> per Jira user.</p>
             <label class="checkbox-label"><input type="checkbox" id="notificationSlackDm" /> Also DM those Jira users in Slack (optional if comments already @mention them)</label>
             <p class="hint small deemph">If <strong>Post a Jira comment</strong> and <strong>@mention recipients</strong> are on (defaults), assignee/reporter/etc. get a Slack DM automatically when a bot token is saved—you do not need this box unless you turned mentions off and still want DMs.</p>
             <label class="field-label dm-extra-label" for="notificationSlackDmEmails">Always notify these emails (all tickets)</label>
             <textarea id="notificationSlackDmEmails" class="text-input" rows="2" placeholder="Comma or line-separated addresses" style="margin-top: 6px; max-width: 400px; resize: vertical;"></textarea>
             <p class="hint small deemph dm-global-hint">These addresses receive a DM for <strong>every</strong> SLA alert, regardless of which ticket triggers it. Use for team leads or on-call contacts who monitor all SLAs.</p>
-            <details class="admin-details deemph">
-              <summary>Slack App Permissions (Admins)</summary>
-              <p class="hint small deemph admin-details-body">DMs need bot scopes such as <code>users:read.email</code> and <code>im:write</code> on your Slack app.</p>
-            </details>
+            <div id="slackMappingDisclosure" class="admin-slack-mapping-disclosure">
+              <button type="button" id="slackMappingDisclosureTrigger" class="admin-slack-mapping-trigger">
+                Having trouble with DMs? Set up Jira → Slack ID mapping →
+              </button>
+              <div class="admin-slack-mapping-panel">
+                <div class="admin-slack-mapping-inner">
+                  <label class="field-label dm-extra-label" for="slackUserIdByAccountId">Jira account ID → Slack member ID (optional)</label>
+                  <textarea id="slackUserIdByAccountId" class="text-input" rows="4" placeholder="e.g. 712020:abc123def,U0AMJAW5W9K&#10;712020:xyz789ghi,U1BMKBX6X0L" style="margin-top: 6px; max-width: 520px; resize: vertical; font-family: monospace; font-size: 12px;"></textarea>
+                  <p class="hint small deemph">When Jira does not expose email, DMs still work if the user's Slack member ID is listed here. Admin rows override self-service entries for the same Jira account.</p>
+                  <details class="admin-details deemph">
+                    <summary>Slack App Permissions (Admins)</summary>
+                    <p class="hint small deemph admin-details-body">DMs need <code>im:write</code> (and <code>chat:write</code>). Email lookup also needs <code>users:read.email</code>. Member-ID DMs work without <code>users:read.email</code> for mapped users.</p>
+                  </details>
+                  <button type="button" id="slackMappingDisclosureClose" class="admin-slack-mapping-close">Collapse →</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

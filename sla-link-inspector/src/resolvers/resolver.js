@@ -36,6 +36,8 @@ function getLicenseStatus() {
 
 const SLA_STATUS_STORAGE_PREFIX = 'sla-link-inspector:';
 const ADMIN_CONFIG_KEY = SLA_STATUS_STORAGE_PREFIX + 'admin-config';
+/** Per-user Slack member IDs (self-service from issue panel). Admin map in config overrides these keys. */
+const SLACK_SELF_USER_MAP_KEY = SLA_STATUS_STORAGE_PREFIX + 'slack-self-user-map';
 
 const DEFAULT_ADMIN_CONFIG = {
   triggerAtRisk: true,
@@ -66,6 +68,8 @@ const DEFAULT_ADMIN_CONFIG = {
   notificationSlack: false,
   notificationSlackDm: false,
   notificationSlackDmEmails: [],
+  /** Jira accountId → Slack member ID (U… / W…) for DMs when Jira does not expose email. Merged with per-user self-map. */
+  slackUserIdByAccountId: {},
   emailWebhookUrl: '',
   slackWebhookUrl: '',
   slackChannelId: '',
@@ -180,6 +184,14 @@ function finalizeAdminConfig(cfg) {
   return migrateMessageTemplates(migrateTimeLeftWarningsConfig(cfg));
 }
 
+/** Normalize Slack user/member id (U… or W… for enterprise). */
+function normalizeSlackMemberId(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim().toUpperCase();
+  if (!/^[UW][A-Z0-9]{8,}$/.test(s)) return null;
+  return s;
+}
+
 async function getAdminConfig() {
   try {
     const raw = await kvs.get(ADMIN_CONFIG_KEY);
@@ -190,6 +202,68 @@ async function getAdminConfig() {
     // ignore
   }
   return finalizeAdminConfig({ ...DEFAULT_ADMIN_CONFIG });
+}
+
+/**
+ * Admin-configured Jira accountId → Slack member ID, merged with self-service map from the issue panel.
+ * Admin entries override self-service for the same accountId.
+ */
+async function getMergedSlackUserIdMap(config) {
+  const adminRaw = config?.slackUserIdByAccountId;
+  const admin =
+    adminRaw && typeof adminRaw === 'object' && !Array.isArray(adminRaw) ? { ...adminRaw } : {};
+  for (const k of Object.keys(admin)) {
+    const v = normalizeSlackMemberId(admin[k]);
+    if (v) admin[k] = v;
+    else delete admin[k];
+  }
+  let self = {};
+  try {
+    const raw = await kvs.get(SLACK_SELF_USER_MAP_KEY);
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      self = { ...raw };
+    }
+  } catch {
+    // ignore
+  }
+  for (const k of Object.keys(self)) {
+    const v = normalizeSlackMemberId(self[k]);
+    if (v) self[k] = v;
+    else delete self[k];
+  }
+  return { ...self, ...admin };
+}
+
+/**
+ * Effective Slack member ID for a Jira accountId and whether it comes from admin config or self-service KVS.
+ * Admin map wins over self-service when both exist.
+ */
+async function getSlackIdResolutionForAccount(config, accountId) {
+  const id = accountId != null ? String(accountId).trim() : '';
+  if (!id) return { effectiveSid: null, mappingSource: 'none' };
+
+  const adminRaw = config?.slackUserIdByAccountId;
+  const adminMap =
+    adminRaw && typeof adminRaw === 'object' && !Array.isArray(adminRaw) ? adminRaw : {};
+  const adminSid = normalizeSlackMemberId(adminMap[id]);
+
+  let selfSid = null;
+  try {
+    const cur = await kvs.get(SLACK_SELF_USER_MAP_KEY);
+    if (cur && typeof cur === 'object' && !Array.isArray(cur)) {
+      selfSid = normalizeSlackMemberId(cur[id]);
+    }
+  } catch {
+    // ignore
+  }
+
+  if (adminSid) {
+    return { effectiveSid: adminSid, mappingSource: 'admin' };
+  }
+  if (selfSid) {
+    return { effectiveSid: selfSid, mappingSource: 'self' };
+  }
+  return { effectiveSid: null, mappingSource: 'none' };
 }
 
 const TIME_LEFT_UNITS = new Set(['days', 'hours', 'minutes']);
@@ -594,6 +668,14 @@ resolver.define('setAdminConfig', async ({ payload }) => {
       toStore[key] = value.map((s) => String(s).trim()).filter(Boolean);
     } else if (key === 'notificationSlackDmEmails' && Array.isArray(value)) {
       toStore[key] = value.map((s) => String(s).trim()).filter(Boolean);
+    } else if (key === 'slackUserIdByAccountId' && value != null && typeof value === 'object' && !Array.isArray(value)) {
+      const out = {};
+      for (const [k, v] of Object.entries(value)) {
+        const aid = String(k).trim();
+        const sid = normalizeSlackMemberId(v);
+        if (aid && sid) out[aid] = sid;
+      }
+      toStore[key] = out;
     } else if (key === 'timeLeftWarningThresholds' && Array.isArray(value)) {
       toStore[key] = normalizeTimeLeftWarningThresholds(value).map((t) => ({
         amount: t.amount,
@@ -792,10 +874,21 @@ resolver.define('testSlackDm', async ({ payload, context }) => {
       }
       const normalizedPrimary = email ? email.toLowerCase() : '';
       if (!jiraEmail && attempted.length === 0) {
+        const merged = await getMergedSlackUserIdMap(saved);
+        const mapped = merged[String(targetAccountId)];
+        if (mapped) {
+          const r = await slackDmOpenImAndPost(token, mapped, testMessage, {});
+          if (!r.ok) {
+            return { ok: false, error: `Slack DM via Jira→Slack member ID mapping failed: ${r.error}` };
+          }
+          attempted.push(`Slack member ${mapped}`);
+        }
+      }
+      if (!jiraEmail && attempted.length === 0) {
         const hint =
           targetSource === 'assignee'
-            ? 'Could not read an email for the assignee or your Jira user (Slack needs an email to find the member). Add an address under “Always notify these emails”, or check Atlassian/Jira profile email visibility for you and the assignee.'
-            : 'Jira did not return an email for your user. Add an address under “Always notify these emails”, or ensure your Jira profile includes a visible email for apps.';
+            ? 'Could not read an email for the assignee or your Jira user, and no Slack member ID is mapped for that Jira account. Map IDs in app settings, use “Link Slack” on the issue panel, or add “Always notify these emails”.'
+            : 'Jira did not return an email for your user and no Slack member ID is mapped. Paste your Slack member ID under Slack integration (admin) or use “Link Slack” on the issue panel, or add “Always notify these emails”.';
         return { ok: false, error: hint };
       }
       if (jiraEmail && jiraEmail.toLowerCase() !== normalizedPrimary) {
@@ -821,6 +914,75 @@ resolver.define('testSlackDm', async ({ payload, context }) => {
     };
   } catch (e) {
     return { ok: false, error: e.message || 'Slack DM test failed.' };
+  }
+});
+
+/**
+ * Save or clear this user’s Slack member ID for DM delivery when Jira does not expose email.
+ * Payload: { slackUserId: string } — empty string removes the mapping.
+ */
+resolver.define('saveMySlackUserId', async ({ payload, context }) => {
+  const licenseStatus = getLicenseStatus();
+  if (licenseStatus.isProduction && !licenseStatus.licensed) {
+    return { ok: false, error: licenseStatus.reason || 'A valid license is required.' };
+  }
+  const raw = payload?.slackUserId != null ? String(payload.slackUserId) : '';
+  const sid = raw.trim() === '' ? null : normalizeSlackMemberId(raw);
+  if (raw.trim() !== '' && !sid) {
+    return { ok: false, error: 'Invalid Slack member ID. Use your ID from Slack (Profile → … → Copy member ID), e.g. U01234ABCDE.' };
+  }
+  const { accountId } = await resolveTestSlackDmTargetAccountId('', context);
+  if (!accountId) {
+    return { ok: false, error: 'Could not determine your Jira account. Open this panel from a Jira issue while signed in.' };
+  }
+  try {
+    const cur = (await kvs.get(SLACK_SELF_USER_MAP_KEY)) || {};
+    const next = { ...(typeof cur === 'object' && cur && !Array.isArray(cur) ? cur : {}) };
+    if (!sid) {
+      delete next[accountId];
+    } else {
+      next[accountId] = sid;
+    }
+    await kvs.set(SLACK_SELF_USER_MAP_KEY, next);
+    const configAfter = await getAdminConfig();
+    const after = await getSlackIdResolutionForAccount(configAfter, accountId);
+    const adminMappingStillApplies = !sid && Boolean(after.effectiveSid);
+    return { ok: true, cleared: !sid, adminMappingStillApplies };
+  } catch (e) {
+    console.error('[SLA Link Inspector] saveMySlackUserId', e?.message);
+    return { ok: false, error: e.message || 'Failed to save.' };
+  }
+});
+
+/** Whether the current user has a merged Slack member ID mapping (admin or self). */
+resolver.define('getSlackLinkStatus', async ({ context }) => {
+  try {
+    const { accountId } = await resolveTestSlackDmTargetAccountId('', context);
+    if (!accountId) {
+      return {
+        accountKnown: false,
+        hasSlackMapping: false,
+        slackUserIdMasked: null,
+        mappingSource: 'none',
+      };
+    }
+    const config = await getAdminConfig();
+    const { effectiveSid, mappingSource } = await getSlackIdResolutionForAccount(config, accountId);
+    const sid = effectiveSid;
+    return {
+      accountKnown: true,
+      hasSlackMapping: Boolean(sid),
+      slackUserIdMasked: sid && sid.length > 6 ? `${sid.slice(0, 3)}…${sid.slice(-3)}` : sid || null,
+      mappingSource,
+    };
+  } catch (e) {
+    console.warn('[SLA Link Inspector] getSlackLinkStatus', e?.message);
+    return {
+      accountKnown: false,
+      hasSlackMapping: false,
+      slackUserIdMasked: null,
+      mappingSource: 'none',
+    };
   }
 });
 
@@ -1743,14 +1905,18 @@ async function getEmailForJiraAccountId(jira, accountId) {
   }
 }
 
+/** Stable cache key: same account + linked/parent issue context → same resolution. */
+function emailResolutionCacheKey(accountId, opts) {
+  const lk = opts.linkedIssueKey != null ? String(opts.linkedIssueKey).trim() : '';
+  const pk = opts.parentIssueKey != null ? String(opts.parentIssueKey).trim() : '';
+  return `${String(accountId).trim()}\t${lk}\t${pk}`;
+}
+
 /**
- * Email for Slack lookup/DM: use email embedded on the mention (from issue payload) when present,
- * else GET /user/email (with read:email-address:jira) then GET /user, then issue assignee/reporter/watchers.
- * @param {object} [opts] - { linkedIssueKey?: string, parentIssueKey?: string } — tries linked issue first, then parent (deduped).
+ * Email for Slack lookup/DM (uncached). Prefer resolveEmailForSlackDm with emailResolutionCache Map
+ * so template {{assignee}} resolution and DM loop do not duplicate Jira calls and logs.
  */
-async function resolveEmailForSlackDm(jira, mention, opts = {}) {
-  if (!mention?.accountId) return null;
-  if (mention.email != null && String(mention.email).trim() !== '') return String(mention.email).trim();
+async function resolveEmailForSlackDmUncached(jira, mention, opts = {}) {
   const primary = await getEmailForJiraAccountId(jira, mention.accountId);
   if (primary) return primary;
   const logTag = '[SLA Link Inspector] Jira email for Slack DM';
@@ -1774,6 +1940,26 @@ async function resolveEmailForSlackDm(jira, mention, opts = {}) {
     );
   }
   return null;
+}
+
+/**
+ * Email for Slack lookup/DM: use email embedded on the mention (from issue payload) when present,
+ * else GET /user/email (with read:email-address:jira) then GET /user, then issue assignee/reporter/watchers.
+ * @param {object} [opts] - { linkedIssueKey?, parentIssueKey?, emailResolutionCache?: Map<string, Promise<string|null>> }
+ */
+async function resolveEmailForSlackDm(jira, mention, opts = {}) {
+  if (!mention?.accountId) return null;
+  if (mention.email != null && String(mention.email).trim() !== '') return String(mention.email).trim();
+
+  const cache = opts.emailResolutionCache;
+  if (cache instanceof Map) {
+    const key = emailResolutionCacheKey(mention.accountId, opts);
+    if (cache.has(key)) return cache.get(key);
+    const pending = resolveEmailForSlackDmUncached(jira, mention, opts);
+    cache.set(key, pending);
+    return pending;
+  }
+  return resolveEmailForSlackDmUncached(jira, mention, opts);
 }
 
 /**
@@ -1826,10 +2012,19 @@ function applyTemplateVariablesExceptAssignee(template, vars) {
 }
 
 /**
- * Build {{assignee}} replacement for Slack: <@USER_ID> per person when Jira email matches Slack (needs bot token).
+ * Build {{assignee}} replacement for Slack: <@USER_ID> per person from admin/self Slack ID map, else email→Slack lookup.
  * Falls back to display name when lookup fails.
+ * @param {Record<string, string>} [slackUserIdMap] - merged Jira accountId → Slack member ID
  */
-async function buildSlackAssigneeReplacement(jira, botToken, mentions, linkedIssueKey, parentIssueKey) {
+async function buildSlackAssigneeReplacement(
+  jira,
+  botToken,
+  mentions,
+  linkedIssueKey,
+  parentIssueKey,
+  emailResolutionCache,
+  slackUserIdMap
+) {
   const plain = Array.isArray(mentions)
     ? mentions.map((m) => m?.displayName || m?.name || 'user').filter(Boolean).join(', ')
     : '';
@@ -1840,10 +2035,19 @@ async function buildSlackAssigneeReplacement(jira, botToken, mentions, linkedIss
   const dmOpts = {};
   if (linkedIssueKey) dmOpts.linkedIssueKey = linkedIssueKey;
   if (parentIssueKey) dmOpts.parentIssueKey = parentIssueKey;
+  if (emailResolutionCache) dmOpts.emailResolutionCache = emailResolutionCache;
+  const map = slackUserIdMap && typeof slackUserIdMap === 'object' ? slackUserIdMap : {};
   const parts = [];
   let anySlackId = false;
   for (const m of mentions) {
     if (!m?.accountId) continue;
+    const mapped = map[m.accountId];
+    const mappedNorm = mapped ? normalizeSlackMemberId(mapped) : null;
+    if (mappedNorm) {
+      parts.push(`<@${mappedNorm}>`);
+      anySlackId = true;
+      continue;
+    }
     const email = await resolveEmailForSlackDm(jira, m, dmOpts);
     const sid = email ? await lookupSlackUserIdByEmail(token, email) : null;
     if (sid) {
@@ -1866,7 +2070,9 @@ async function buildSlackAndEmailBodiesFromTemplate(
   mentions,
   botToken,
   linkedIssueKey,
-  parentIssueKey
+  parentIssueKey,
+  emailResolutionCache,
+  slackUserIdMap
 ) {
   let text = applyTemplateVariablesExceptAssignee(template, vars);
   text = collapseExtraAssigneePlaceholders(text);
@@ -1877,10 +2083,64 @@ async function buildSlackAndEmailBodiesFromTemplate(
     const trimmed = text.replace(/\n\n+/g, '\n').trim();
     return { slackText: trimmed, emailText: trimmed, mrkdwn: false };
   }
-  const slackAssign = await buildSlackAssigneeReplacement(jira, botToken, mentions, linkedIssueKey, parentIssueKey);
+  const slackAssign = await buildSlackAssigneeReplacement(
+    jira,
+    botToken,
+    mentions,
+    linkedIssueKey,
+    parentIssueKey,
+    emailResolutionCache,
+    slackUserIdMap
+  );
   const slackText = text.replace(/\{\{assignee\}\}/g, slackAssign.text).replace(/\n\n+/g, '\n').trim();
   const emailText = text.replace(/\{\{assignee\}\}/g, assigneePlain).replace(/\n\n+/g, '\n').trim();
   return { slackText, emailText, mrkdwn: slackAssign.mrkdwn };
+}
+
+/**
+ * Open IM with Slack user and post message. Requires bot token with im:write (and chat:write).
+ * @param {object} [opts] - { mrkdwn: true } so <@USER_ID> renders as mentions (same as channel posts).
+ */
+async function slackDmOpenImAndPost(botToken, slackUserId, message, opts = {}) {
+  const token = (botToken || '').trim();
+  const userId = normalizeSlackMemberId(slackUserId);
+  if (!token || !userId) return { ok: false, error: 'missing_token_or_user' };
+  const openRes = await fetch('https://slack.com/api/conversations.open', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ users: userId }),
+  });
+  const openData = await openRes.json().catch(() => ({}));
+  if (!openData.ok || !openData.channel?.id) {
+    console.error('[SLA Link Inspector] Slack DM conversations.open failed', openData.error);
+    return { ok: false, error: openData.error || 'open_failed' };
+  }
+  const channelId = openData.channel.id;
+  const useMrkdwn = Boolean(opts.mrkdwn) && /<\@[UW][A-Z0-9]+>/i.test(String(message));
+  const postBody = useMrkdwn
+    ? {
+        channel: channelId,
+        blocks: [{ type: 'section', text: { type: 'mrkdwn', text: message } }],
+      }
+    : { channel: channelId, text: message };
+  const postRes = await fetch('https://slack.com/api/chat.postMessage', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(postBody),
+  });
+  const postData = await postRes.json().catch(() => ({}));
+  if (!postData.ok) {
+    console.error('[SLA Link Inspector] Slack DM post failed', postData.error);
+    return { ok: false, error: postData.error || 'post_failed' };
+  }
+  return { ok: true };
+}
+
+/**
+ * DM by Slack member ID (no users:read.email). Requires im:write.
+ */
+async function sendSlackDmByUserId(botToken, slackUserId, message, opts = {}) {
+  await slackDmOpenImAndPost(botToken, slackUserId, message, opts);
 }
 
 /**
@@ -1902,32 +2162,7 @@ async function sendSlackDm(botToken, email, message, opts = {}) {
       return;
     }
     const userId = lookupData.user.id;
-    const openRes = await fetch('https://slack.com/api/conversations.open', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      // Slack expects `users` as a comma-separated string (or single user ID), not an array.
-      body: JSON.stringify({ users: userId }),
-    });
-    const openData = await openRes.json().catch(() => ({}));
-    if (!openData.ok || !openData.channel?.id) {
-      console.error('[SLA Link Inspector] Slack DM conversations.open failed', openData.error);
-      return;
-    }
-    const channelId = openData.channel.id;
-    const useMrkdwn = Boolean(opts.mrkdwn) && /<\@[UW][A-Z0-9]+>/.test(String(message));
-    const postBody = useMrkdwn
-      ? {
-          channel: channelId,
-          blocks: [{ type: 'section', text: { type: 'mrkdwn', text: message } }],
-        }
-      : { channel: channelId, text: message };
-    const postRes = await fetch('https://slack.com/api/chat.postMessage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(postBody),
-    });
-    const postData = await postRes.json().catch(() => ({}));
-    if (!postData.ok) console.error('[SLA Link Inspector] Slack DM post failed', postData.error);
+    await slackDmOpenImAndPost(token, userId, message, opts);
   } catch (err) {
     console.error('[SLA Link Inspector] Slack DM error', err.message);
   }
@@ -1950,26 +2185,9 @@ async function sendSlackDmWithResult(botToken, email, message) {
       return { ok: false, error: lookupData.error || 'lookup_failed' };
     }
     const userId = lookupData.user.id;
-    const openRes = await fetch('https://slack.com/api/conversations.open', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ users: userId }),
-    });
-    const openData = await openRes.json().catch(() => ({}));
-    if (!openData.ok || !openData.channel?.id) {
-      return { ok: false, error: openData.error || 'open_failed' };
-    }
-    const channelId = openData.channel.id;
-    const postRes = await fetch('https://slack.com/api/chat.postMessage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ channel: channelId, text: message }),
-    });
-    const postData = await postRes.json().catch(() => ({}));
-    if (!postData.ok) {
-      return { ok: false, error: postData.error || 'post_failed' };
-    }
-    return { ok: true, userId, channelId };
+    const r = await slackDmOpenImAndPost(token, userId, message, {});
+    if (!r.ok) return { ok: false, error: r.error || 'dm_failed' };
+    return { ok: true, userId };
   } catch (err) {
     return { ok: false, error: err.message || 'error' };
   }
@@ -2106,6 +2324,8 @@ async function maybeCommentOnSlaChange(
     const defaultMsg = `Parent ticket ${parentIssueKey}'s SLA is now ${vars.status}. Ticket Priority: ${parentPriorityLabel}. Time remaining: ${remainingTimeStr}.`;
     const messageForEmail = plainText || defaultMsg;
     const dmToken = getSlackBotTokenForDm(config);
+    const emailResolutionCache = new Map();
+    const slackUserIdMap = await getMergedSlackUserIdMap(config);
     let messageForSlack = messageForEmail;
     let slackMrkdwn = false;
     if (config.customTemplate && String(config.customTemplate).trim()) {
@@ -2117,6 +2337,8 @@ async function maybeCommentOnSlaChange(
         dmToken,
         linkedIssueKey,
         parentIssueKey,
+        emailResolutionCache,
+        slackUserIdMap,
       );
       messageForSlack = built.slackText || messageForEmail;
       slackMrkdwn = built.mrkdwn;
@@ -2143,10 +2365,24 @@ async function maybeCommentOnSlaChange(
       if (shouldSlackDmConfiguredJiraUsers(config) && Array.isArray(mentions)) {
         for (const m of mentions) {
           if (!m?.accountId) continue;
-          const email = await resolveEmailForSlackDm(jira, m, { linkedIssueKey, parentIssueKey });
+          const mappedSid = slackUserIdMap[m.accountId];
+          const mappedNorm = mappedSid ? normalizeSlackMemberId(mappedSid) : null;
+          if (mappedNorm) {
+            const dedupeKey = `sid:${mappedNorm}`;
+            if (!dmSent.has(dedupeKey)) {
+              dmSent.add(dedupeKey);
+              await sendSlackDmByUserId(dmToken, mappedNorm, messageForSlack, dmOpts);
+            }
+            continue;
+          }
+          const email = await resolveEmailForSlackDm(jira, m, {
+            linkedIssueKey,
+            parentIssueKey,
+            emailResolutionCache,
+          });
           if (!email) {
             console.warn(
-              `[SLA Link Inspector] Slack DM skipped — no email for Jira user accountId=${m?.accountId ?? '(missing)'} (see “Jira email for Slack DM” logs). Optional “Always notify these emails” in app settings still receives DMs.`,
+              `[SLA Link Inspector] Slack DM skipped — no email or Slack member ID for Jira user accountId=${m?.accountId ?? '(missing)'} (see “Jira email for Slack DM” logs). Map Slack IDs in app settings or use “Link Slack” on the issue panel.`,
             );
             continue;
           }
@@ -2560,6 +2796,8 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
       if (shouldSlackDmConfiguredJiraUsers(config) && posted.length > 0) {
         const dmTrigger = currentSla.status === 'breached' ? 'breached' : 'at_risk';
         const resolvedNotifyFieldsManual = new Map();
+        const emailResolutionCacheManual = new Map();
+        const slackUserIdMapManual = await getMergedSlackUserIdMap(config);
         for (const linkedKey of posted) {
           const linkedPeople = await buildMentionPeopleFromIssue(
             jira,
@@ -2570,19 +2808,30 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
           const mentionsDm = buildMentionsForTrigger(config, dmTrigger, linkedPeople);
           for (const m of mentionsDm) {
             if (!m?.accountId) continue;
+            const mappedSid = slackUserIdMapManual[m.accountId];
+            const mappedNorm = mappedSid ? normalizeSlackMemberId(mappedSid) : null;
+            if (mappedNorm) {
+              const dedupeKey = `sid:${mappedNorm}`;
+              if (!dmSentManual.has(dedupeKey)) {
+                dmSentManual.add(dedupeKey);
+                await sendSlackDmByUserId(dmTokenManual, mappedNorm, slackTextForSlackDelivery, { mrkdwn: true });
+              }
+              continue;
+            }
             const email = await resolveEmailForSlackDm(jira, m, {
               linkedIssueKey: linkedKey,
               parentIssueKey: currentIssueKey,
+              emailResolutionCache: emailResolutionCacheManual,
             });
             if (!email) {
               console.warn(
-                `[SLA Link Inspector] Slack DM skipped — no email for Jira user accountId=${m?.accountId ?? '(missing)'} (see “Jira email for Slack DM” logs). Optional “Always notify these emails” in app settings still receives DMs.`,
+                `[SLA Link Inspector] Slack DM skipped — no email or Slack member ID for Jira user accountId=${m?.accountId ?? '(missing)'}. Map Slack IDs in app settings or use “Link Slack” on the issue panel.`,
               );
               continue;
             }
             if (!dmSentManual.has(email.toLowerCase())) {
               dmSentManual.add(email.toLowerCase());
-              await sendSlackDm(dmTokenManual, email, slackTextForSlackDelivery);
+              await sendSlackDm(dmTokenManual, email, slackTextForSlackDelivery, { mrkdwn: true });
             }
           }
         }
@@ -2594,7 +2843,7 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
         const e = (email && String(email).trim()) || '';
         if (e && !dmSentManual.has(e.toLowerCase())) {
           dmSentManual.add(e.toLowerCase());
-          await sendSlackDm(dmTokenManual, e, slackTextForSlackDelivery);
+          await sendSlackDm(dmTokenManual, e, slackTextForSlackDelivery, { mrkdwn: true });
         }
       }
     }
@@ -2780,9 +3029,11 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
             status: statusLabel,
             priority: parentPriorityStr,
           };
+          const slackUserIdMapW = await getMergedSlackUserIdMap(config);
           for (const linked of linkedIssues) {
             if (linked.error) continue;
             if (config.onlyNotifyIfOpen && linked.statusCategory === 'done') continue;
+            const emailResolutionCacheW = new Map();
             const linkedPeopleW = await buildMentionPeopleFromIssue(jira, linked.key, config, resolvedNotifyFields);
             const triggerForThresholds = recipientsKey;
             const mentionsW = buildMentionsForTrigger(config, triggerForThresholds, linkedPeopleW);
@@ -2813,6 +3064,8 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
                 dmTokenW,
                 linked.key,
                 safeIssueKey,
+                emailResolutionCacheW,
+                slackUserIdMapW,
               );
               slackW = builtW.slackText || plainW;
               emailMessageW = builtW.emailText || plainW;
@@ -2840,13 +3093,24 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
               if (shouldSlackDmConfiguredJiraUsers(config) && Array.isArray(mentionsW)) {
                 for (const m of mentionsW) {
                   if (!m?.accountId) continue;
+                  const mappedSidW = slackUserIdMapW[m.accountId];
+                  const mappedNormW = mappedSidW ? normalizeSlackMemberId(mappedSidW) : null;
+                  if (mappedNormW) {
+                    const dedupeKeyW = `sid:${mappedNormW}`;
+                    if (!dmSentW.has(dedupeKeyW)) {
+                      dmSentW.add(dedupeKeyW);
+                      await sendSlackDmByUserId(dmTokenW, mappedNormW, slackW, dmOptsW);
+                    }
+                    continue;
+                  }
                   const email = await resolveEmailForSlackDm(jira, m, {
                     linkedIssueKey: linked.key,
                     parentIssueKey: safeIssueKey,
+                    emailResolutionCache: emailResolutionCacheW,
                   });
                   if (!email) {
                     console.warn(
-                      `[SLA Link Inspector] Slack DM skipped — no email for Jira user accountId=${m?.accountId ?? '(missing)'} (see “Jira email for Slack DM” logs). Optional “Always notify these emails” in app settings still receives DMs.`,
+                      `[SLA Link Inspector] Slack DM skipped — no email or Slack member ID for Jira user accountId=${m?.accountId ?? '(missing)'}. Map Slack IDs in app settings or use “Link Slack” on the issue panel.`,
                     );
                     continue;
                   }
