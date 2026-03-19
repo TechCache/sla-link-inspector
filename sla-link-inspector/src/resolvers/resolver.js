@@ -1308,10 +1308,89 @@ async function getEmailForJiraAccountId(jira, accountId) {
 }
 
 /**
+ * Slack user ID for a workspace member email (same API as DM lookup). Requires bot token with users:read.email.
+ */
+async function lookupSlackUserIdByEmail(botToken, email) {
+  const token = (botToken || '').trim();
+  const e = (email || '').trim().toLowerCase();
+  if (!token || !e) return null;
+  try {
+    const lookupRes = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(e)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const lookupData = await lookupRes.json().catch(() => ({}));
+    if (!lookupData.ok || !lookupData.user?.id) return null;
+    return lookupData.user.id;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Replace template vars except {{assignee}} (caller substitutes assignee separately).
+ */
+function applyTemplateVariablesExceptAssignee(template, vars) {
+  let text = String(template || '');
+  text = text.replace(/\{\{issueKey\}\}/g, vars.issueKey ?? '');
+  text = text.replace(/\{\{slaName\}\}/g, vars.slaName ?? '');
+  text = text.replace(/\{\{remainingTime\}\}/g, vars.remainingTime ?? '');
+  text = text.replace(/\{\{status\}\}/g, vars.status ?? '');
+  text = text.replace(/\{\{priority\}\}/g, vars.priority ?? '—');
+  return text;
+}
+
+/**
+ * Build {{assignee}} replacement for Slack: <@USER_ID> per person when Jira email matches Slack (needs bot token).
+ * Falls back to display name when lookup fails.
+ */
+async function buildSlackAssigneeReplacement(jira, botToken, mentions) {
+  const plain = Array.isArray(mentions)
+    ? mentions.map((m) => m?.displayName || m?.name || 'user').filter(Boolean).join(', ')
+    : '';
+  const token = (botToken || '').trim();
+  if (!token || !Array.isArray(mentions) || mentions.length === 0) {
+    return { text: plain, mrkdwn: false };
+  }
+  const parts = [];
+  let anySlackId = false;
+  for (const m of mentions) {
+    if (!m?.accountId) continue;
+    const email = await getEmailForJiraAccountId(jira, m.accountId);
+    const sid = email ? await lookupSlackUserIdByEmail(token, email) : null;
+    if (sid) {
+      parts.push(`<@${sid}>`);
+      anySlackId = true;
+    } else {
+      parts.push(m.displayName || m.name || 'user');
+    }
+  }
+  return { text: parts.length > 0 ? parts.join(' ') : plain, mrkdwn: anySlackId };
+}
+
+/**
+ * Slack channel message from custom template with real @mentions when possible; email-safe copy uses display names.
+ */
+async function buildSlackAndEmailBodiesFromTemplate(jira, template, vars, mentions, botToken) {
+  let text = applyTemplateVariablesExceptAssignee(template, vars);
+  const assigneePlain = Array.isArray(mentions)
+    ? mentions.map((m) => m?.displayName || m?.name || 'user').filter(Boolean).join(', ')
+    : '';
+  if (!text.includes('{{assignee}}')) {
+    const trimmed = text.replace(/\n\n+/g, '\n').trim();
+    return { slackText: trimmed, emailText: trimmed, mrkdwn: false };
+  }
+  const slackAssign = await buildSlackAssigneeReplacement(jira, botToken, mentions);
+  const slackText = text.replace(/\{\{assignee\}\}/g, slackAssign.text).replace(/\n\n+/g, '\n').trim();
+  const emailText = text.replace(/\{\{assignee\}\}/g, assigneePlain).replace(/\n\n+/g, '\n').trim();
+  return { slackText, emailText, mrkdwn: slackAssign.mrkdwn };
+}
+
+/**
  * Send a DM to a Slack user by email: users.lookupByEmail → conversations.open → chat.postMessage.
  * Best-effort; logs and returns on errors (no throw). Requires bot token with users:read.email and im:write.
+ * @param {object} [opts] - { mrkdwn: true } so <@USER_ID> renders as mentions (same as channel posts).
  */
-async function sendSlackDm(botToken, email, message) {
+async function sendSlackDm(botToken, email, message, opts = {}) {
   const token = (botToken || '').trim();
   const e = (email || '').trim().toLowerCase();
   if (!token || !e) return;
@@ -1337,10 +1416,17 @@ async function sendSlackDm(botToken, email, message) {
       return;
     }
     const channelId = openData.channel.id;
+    const useMrkdwn = Boolean(opts.mrkdwn) && /<\@[UW][A-Z0-9]+>/.test(String(message));
+    const postBody = useMrkdwn
+      ? {
+          channel: channelId,
+          blocks: [{ type: 'section', text: { type: 'mrkdwn', text: message } }],
+        }
+      : { channel: channelId, text: message };
     const postRes = await fetch('https://slack.com/api/chat.postMessage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ channel: channelId, text: message }),
+      body: JSON.stringify(postBody),
     });
     const postData = await postRes.json().catch(() => ({}));
     if (!postData.ok) console.error('[SLA Link Inspector] Slack DM post failed', postData.error);
@@ -1499,23 +1585,32 @@ async function maybeCommentOnSlaChange(
     };
     const plainText = buildPlainTextMessage(config.customTemplate || null, vars, mentions);
     const defaultMsg = `Parent ticket ${parentIssueKey}'s SLA is now ${vars.status}. Ticket Priority: ${parentPriorityLabel}. Time remaining: ${remainingTimeStr}.`;
-    const messageForChannels = plainText || defaultMsg;
+    const messageForEmail = plainText || defaultMsg;
+    const dmToken = getSlackBotTokenForDm(config);
+    let messageForSlack = messageForEmail;
+    let slackMrkdwn = false;
+    if (config.customTemplate && String(config.customTemplate).trim()) {
+      const built = await buildSlackAndEmailBodiesFromTemplate(jira, config.customTemplate, vars, mentions, dmToken);
+      messageForSlack = built.slackText || messageForEmail;
+      slackMrkdwn = built.mrkdwn;
+    }
     const slackParams = getSlackSendParams(config);
     if (config.notificationSlack && slackParams) {
-      if (slackParams.method === 'webhook') await sendSlackNotification(slackParams.webhookUrl, messageForChannels);
-      else await sendSlackViaWebApi(slackParams.token, slackParams.channelId, messageForChannels);
+      const slackOpts = slackMrkdwn ? { mrkdwn: true } : {};
+      if (slackParams.method === 'webhook') await sendSlackNotification(slackParams.webhookUrl, messageForSlack, slackOpts);
+      else await sendSlackViaWebApi(slackParams.token, slackParams.channelId, messageForSlack, slackOpts);
     }
     const dmEnabled = config.notificationSlackDm || (Array.isArray(config.notificationSlackDmEmails) && config.notificationSlackDmEmails.length > 0);
-    const dmToken = getSlackBotTokenForDm(config);
     if (dmEnabled && dmToken) {
       const dmSent = new Set();
+      const dmOpts = slackMrkdwn ? { mrkdwn: true } : {};
       if (config.notificationSlackDm && Array.isArray(mentions)) {
         for (const m of mentions) {
           if (!m?.accountId) continue;
           const email = await getEmailForJiraAccountId(jira, m.accountId);
           if (email && !dmSent.has(email.toLowerCase())) {
             dmSent.add(email.toLowerCase());
-            await sendSlackDm(dmToken, email, messageForChannels);
+            await sendSlackDm(dmToken, email, messageForSlack, dmOpts);
           }
         }
       }
@@ -1524,7 +1619,7 @@ async function maybeCommentOnSlaChange(
         const e = (email && String(email).trim()) || '';
         if (e && !dmSent.has(e.toLowerCase())) {
           dmSent.add(e.toLowerCase());
-          await sendSlackDm(dmToken, e, messageForChannels);
+          await sendSlackDm(dmToken, e, messageForSlack, dmOpts);
         }
       }
     }
@@ -1538,7 +1633,7 @@ async function maybeCommentOnSlaChange(
         remainingTime: remainingTimeStr,
         parentPriority: parentPriorityLabel,
         recipients: mentions.map((m) => ({ accountId: m.accountId, displayName: m.displayName || m.name })),
-        message: messageForChannels,
+        message: messageForEmail,
         subject: `SLA ${vars.status}: ${parentIssueKey}`,
       });
     }
@@ -2145,24 +2240,41 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
             const plainW =
               buildPlainTextMessage(config.customTemplate || null, varsWarn, mentionsW) ||
               `Parent ticket ${safeIssueKey} SLA: ${statusLabel}. Ticket Priority: ${parentPriorityStr}.`;
+            const dmTokenW = getSlackBotTokenForDm(config);
+            let slackW = plainW;
+            let emailMessageW = plainW;
+            let slackMrkdwnW = false;
+            if (config.customTemplate && String(config.customTemplate).trim()) {
+              const builtW = await buildSlackAndEmailBodiesFromTemplate(
+                jira,
+                config.customTemplate,
+                varsWarn,
+                mentionsW,
+                dmTokenW
+              );
+              slackW = builtW.slackText || plainW;
+              emailMessageW = builtW.emailText || plainW;
+              slackMrkdwnW = builtW.mrkdwn;
+            }
             const slackParamsW = getSlackSendParams(config);
             if (config.notificationSlack && slackParamsW) {
-              if (slackParamsW.method === 'webhook') await sendSlackNotification(slackParamsW.webhookUrl, plainW);
-              else await sendSlackViaWebApi(slackParamsW.token, slackParamsW.channelId, plainW);
+              const slackOptsW = slackMrkdwnW ? { mrkdwn: true } : {};
+              if (slackParamsW.method === 'webhook') await sendSlackNotification(slackParamsW.webhookUrl, slackW, slackOptsW);
+              else await sendSlackViaWebApi(slackParamsW.token, slackParamsW.channelId, slackW, slackOptsW);
             }
             const dmEnabledW =
               config.notificationSlackDm ||
               (Array.isArray(config.notificationSlackDmEmails) && config.notificationSlackDmEmails.length > 0);
-            const dmTokenW = getSlackBotTokenForDm(config);
             if (dmEnabledW && dmTokenW) {
               const dmSentW = new Set();
+              const dmOptsW = slackMrkdwnW ? { mrkdwn: true } : {};
               if (config.notificationSlackDm && Array.isArray(mentionsW)) {
                 for (const m of mentionsW) {
                   if (!m?.accountId) continue;
                   const email = await getEmailForJiraAccountId(jira, m.accountId);
                   if (email && !dmSentW.has(email.toLowerCase())) {
                     dmSentW.add(email.toLowerCase());
-                    await sendSlackDm(dmTokenW, email, plainW);
+                    await sendSlackDm(dmTokenW, email, slackW, dmOptsW);
                   }
                 }
               }
@@ -2173,7 +2285,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
                 const e = (email && String(email).trim()) || '';
                 if (e && !dmSentW.has(e.toLowerCase())) {
                   dmSentW.add(e.toLowerCase());
-                  await sendSlackDm(dmTokenW, e, plainW);
+                  await sendSlackDm(dmTokenW, e, slackW, dmOptsW);
                 }
               }
             }
@@ -2187,7 +2299,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
                 remainingTime: remainingTimeStr,
                 parentPriority: parentPriorityStr,
                 recipients: mentionsW.map((m) => ({ accountId: m.accountId, displayName: m.displayName || m.name })),
-                message: plainW,
+                message: emailMessageW,
                 subject: `SLA warning (${safeIssueKey}): ${statusLabel}`,
               });
             }
