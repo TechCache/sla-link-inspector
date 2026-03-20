@@ -361,9 +361,14 @@ async function renderSlackSelfLinkSection(licensed) {
   const trigger = document.createElement('button');
   trigger.type = 'button';
   trigger.className = 'slack-dm-fallback-trigger';
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.setAttribute('aria-controls', 'slack-dm-fallback-panel');
 
   const panel = document.createElement('div');
+  panel.id = 'slack-dm-fallback-panel';
   panel.className = 'slack-dm-fallback-panel';
+  panel.setAttribute('role', 'region');
+  panel.setAttribute('aria-label', 'Slack DM fallback settings');
 
   const panelInner = document.createElement('div');
   panelInner.className = 'slack-dm-fallback-panel-inner';
@@ -423,6 +428,7 @@ async function renderSlackSelfLinkSection(licensed) {
 
   function setExpanded(on) {
     host.classList.toggle('is-expanded', on);
+    trigger.setAttribute('aria-expanded', on ? 'true' : 'false');
   }
 
   function updateTrigger(linked) {
@@ -486,9 +492,7 @@ async function renderSlackSelfLinkSection(licensed) {
 
   updateTrigger(initialLinked);
   applyStatusFromServer();
-  if (initialLinked) {
-    setExpanded(true);
-  }
+  // Slack subsection stays collapsed until the user opens it (even when already linked).
 
   trigger.addEventListener('click', () => {
     setExpanded(!host.classList.contains('is-expanded'));
@@ -523,7 +527,6 @@ async function renderSlackSelfLinkSection(licensed) {
         }
         applyStatusFromServer();
         updateTrigger(Boolean(st?.hasSlackMapping));
-        setExpanded(true);
       } else {
         statusEl.textContent = res?.error || 'Could not save.';
       }
