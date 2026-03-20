@@ -10,8 +10,8 @@ The app runs entirely on **Atlassian Forge**, meaning core processing happens in
 
 - [Terms of Service](https://techcache.github.io/terms)  
 - [Privacy Policy](https://techcache.github.io/privacy)  
-- [Legal information](https://techcache.github.io/legal)  
-- Support: **techcache@proton.me**
+- [Legal & Trust](https://techcache.github.io/legal/)  
+- Support: **techcache@proton.me** · [Support & security](https://techcache.github.io/support)
 
 ---
 
