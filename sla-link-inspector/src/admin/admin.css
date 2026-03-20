@@ -191,12 +191,15 @@ h1 {
   margin-top: 4px;
 }
 
+/* Full-width divider before section 6 (Message Wording), same as .config-section border-bottom */
 .slack-bot-setup-host {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #dfe1e6;
 }
 
 .slack-bot-setup-host:not([hidden]) {
-  padding: 12px 0 0 0;
+  padding-top: 12px;
 }
 
 .slack-bot-skipped {
@@ -209,10 +212,11 @@ h1 {
   border: 1px solid #ebecf0;
 }
 
-.ia-slack-bot-step {
-  margin-bottom: 24px !important;
-  padding-bottom: 18px !important;
-  border-bottom: 1px solid #dfe1e6;
+/* Border before §6 comes from .slack-bot-setup-host; avoid double line from .config-section */
+.config-section.ia-slack-bot-step {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .slack-bot-lead {
@@ -345,18 +349,6 @@ h1 {
 
 .compact-vars li {
   margin: 4px 0;
-}
-
-.message-content-final {
-  margin-top: 8px;
-  padding-top: 28px;
-  border-top: 2px solid #c1c7d0;
-  background: linear-gradient(to bottom, #fafbfc 0%, #fff 48px);
-  border-radius: 8px 8px 0 0;
-  padding-left: 4px;
-  padding-right: 4px;
-  margin-left: -4px;
-  margin-right: -4px;
 }
 
 .ia-credentials .slack-test-row {
@@ -614,6 +606,40 @@ h1 {
 
 .template-tip-separator {
   padding-bottom: 20px;
+}
+
+/* Message templates — expand when checkbox selected */
+.admin-message-template-disclosure {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #dfe1e6;
+}
+
+.admin-message-template-disclosure:first-of-type {
+  margin-top: 16px;
+}
+
+.template-edit-toggle-label {
+  margin-bottom: 4px;
+}
+
+.template-edit-hint {
+  margin: 0 0 0 24px !important;
+  max-width: 640px;
+}
+
+.admin-message-template-panel {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease;
+}
+
+.admin-message-template-disclosure.is-expanded .admin-message-template-panel {
+  max-height: 4800px;
+}
+
+.admin-message-template-panel-inner {
+  padding-top: 12px;
 }
 
 .notification-subsection.email-webhook-block {

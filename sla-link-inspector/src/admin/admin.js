@@ -194,6 +194,26 @@ function setSlackMappingDisclosureExpanded(expanded) {
   if (wrap) wrap.classList.toggle('is-expanded', Boolean(expanded));
 }
 
+/** UI-only checkboxes: show/hide message template editors (not saved to admin config). */
+function setMessageTemplateExpanded(which, expanded) {
+  const wrapId = which === 'automated' ? 'messageTemplateAutomatedDisclosure' : 'messageTemplateManualDisclosure';
+  const cbId = which === 'automated' ? 'messageTemplateAutomatedToggle' : 'messageTemplateManualToggle';
+  const wrap = document.getElementById(wrapId);
+  const cb = document.getElementById(cbId);
+  const on = Boolean(expanded);
+  const panelId = which === 'automated' ? 'messageTemplateAutomatedPanel' : 'messageTemplateManualPanel';
+  const panel = document.getElementById(panelId);
+  if (wrap) wrap.classList.toggle('is-expanded', on);
+  if (cb) {
+    cb.checked = on;
+    cb.setAttribute('aria-expanded', on ? 'true' : 'false');
+  }
+  if (panel) {
+    if (on) panel.removeAttribute('inert');
+    else panel.setAttribute('inert', '');
+  }
+}
+
 function buildAdminSavePayload() {
   const payload = finalizeAdminPayload(formToPayload());
   payload.timeLeftWarningsEnabled = Boolean(document.getElementById('timeLeftWarningsEnabled')?.checked);
@@ -365,6 +385,9 @@ async function load() {
     updateRecipientsVisibility();
     updateSlackVisibility();
     updateSlackBotSetupVisibility();
+    // Message template panels stay collapsed on load (checkboxes unchecked) even if custom text is saved.
+    setMessageTemplateExpanded('automated', false);
+    setMessageTemplateExpanded('manual', false);
   } catch (e) {
     showError(e.message || 'Failed to load settings.');
   }
@@ -513,4 +536,11 @@ document.getElementById('slackMappingDisclosureClose')?.addEventListener('click'
 
 document.getElementById('slackUserIdByAccountId')?.addEventListener('input', () => {
   syncSlackMappingDisclosureTrigger();
+});
+
+document.getElementById('messageTemplateAutomatedToggle')?.addEventListener('change', (e) => {
+  setMessageTemplateExpanded('automated', e.target.checked);
+});
+document.getElementById('messageTemplateManualToggle')?.addEventListener('change', (e) => {
+  setMessageTemplateExpanded('manual', e.target.checked);
 });

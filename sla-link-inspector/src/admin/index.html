@@ -184,7 +184,7 @@
     </div>
 
     <!-- 6 · Message content -->
-    <section class="config-section ia-messages message-content-final">
+    <section class="config-section ia-messages">
       <h2 class="ia-h2"><span class="ia-num">6</span> Message Wording</h2>
       <p class="hint ia-lead">Leave blank to use default wording.</p>
       <table class="template-compare" aria-label="When each template is used">
@@ -206,32 +206,54 @@
         </tbody>
       </table>
 
-      <h3 class="subsection-title" style="margin-top: 24px;">Automated Alerts</h3>
-      <p class="hint small deemph">Same text for Jira comments and Slack/email on automated triggers.</p>
-      <p class="hint label-tight">Placeholders</p>
-      <ul class="vars-list compact-vars">
-        <li><code>{{issueKey}}</code> — parent (SLA ticket)</li>
-        <li><code>{{slaName}}</code> — SLA name</li>
-        <li><code>{{remainingTime}}</code> — e.g. 9d left</li>
-        <li><code>{{status}}</code> — at risk / breached / in range</li>
-        <li><code>{{priority}}</code> — ticket priority (e.g. High)</li>
-        <li><code>{{assignee}}</code> — @mentions configured in Alert Triggers &amp; Recipients</li>
-      </ul>
-      <textarea id="customTemplate" class="template-input" rows="10" placeholder="Leave empty to use the default message."></textarea>
-      <p class="hint small field-hint template-tip-separator deemph">~500 characters or less reads well in Jira.</p>
+      <div id="messageTemplateAutomatedDisclosure" class="admin-message-template-disclosure">
+        <label class="checkbox-label block-label template-edit-toggle-label">
+          <input type="checkbox" id="messageTemplateAutomatedToggle" aria-controls="messageTemplateAutomatedPanel" aria-expanded="false" />
+          Edit <strong>automated</strong> alert message wording
+        </label>
+        <p class="hint small deemph template-edit-hint">Jira comments and Slack/email for at risk, breached, and time-warning triggers. Leave collapsed to keep defaults.</p>
+        <div id="messageTemplateAutomatedPanel" class="admin-message-template-panel" role="region" aria-label="Automated message template editor" inert>
+          <div class="admin-message-template-panel-inner">
+            <h3 class="subsection-title">Automated Alerts</h3>
+            <p class="hint small deemph">Same text for Jira comments and Slack/email on automated triggers.</p>
+            <p class="hint label-tight">Placeholders</p>
+            <ul class="vars-list compact-vars">
+              <li><code>{{issueKey}}</code> — parent (SLA ticket)</li>
+              <li><code>{{slaName}}</code> — SLA name</li>
+              <li><code>{{remainingTime}}</code> — e.g. 9d left</li>
+              <li><code>{{status}}</code> — at risk / breached / in range</li>
+              <li><code>{{priority}}</code> — ticket priority (e.g. High)</li>
+              <li><code>{{assignee}}</code> — @mentions configured in Alert Triggers &amp; Recipients</li>
+            </ul>
+            <textarea id="customTemplate" class="template-input" rows="10" placeholder="Leave empty to use the default message."></textarea>
+            <p class="hint small field-hint template-tip-separator deemph">~500 characters or less reads well in Jira.</p>
+          </div>
+        </div>
+      </div>
 
-      <h3 class="subsection-title template-manual-title" style="margin-top: 20px;">Manual Send</h3>
-      <p class="hint small deemph">When someone uses “Send SLA Alert” on an issue.</p>
-      <p class="hint label-tight">Placeholders</p>
-      <ul class="vars-list compact-vars">
-        <li><code>{{issueKey}}</code> — parent SLA ticket</li>
-        <li><code>{{slaStatus}}</code> — At-Risk / Breached / in range</li>
-        <li><code>{{priority}}</code> — parent SLA ticket priority</li>
-        <li><code>{{expiryDate}}</code> — expiry</li>
-        <li><code>{{assignee}}</code> — @mentions configured in Alert Triggers &amp; Recipients</li>
-      </ul>
-      <textarea id="relayCommentTemplate" class="template-input" rows="6" placeholder="Leave empty to use the default message."></textarea>
-      <p class="hint small field-hint deemph">~500 characters or less reads well in Jira.</p>
+      <div id="messageTemplateManualDisclosure" class="admin-message-template-disclosure">
+        <label class="checkbox-label block-label template-edit-toggle-label">
+          <input type="checkbox" id="messageTemplateManualToggle" aria-controls="messageTemplateManualPanel" aria-expanded="false" />
+          Edit <strong>Send SLA Alert</strong> (manual) message wording
+        </label>
+        <p class="hint small deemph template-edit-hint">Panel action on an issue. Leave collapsed to keep defaults.</p>
+        <div id="messageTemplateManualPanel" class="admin-message-template-panel" role="region" aria-label="Manual Send message template editor" inert>
+          <div class="admin-message-template-panel-inner">
+            <h3 class="subsection-title template-manual-title">Manual Send</h3>
+            <p class="hint small deemph">When someone uses “Send SLA Alert” on an issue.</p>
+            <p class="hint label-tight">Placeholders</p>
+            <ul class="vars-list compact-vars">
+              <li><code>{{issueKey}}</code> — parent SLA ticket</li>
+              <li><code>{{slaStatus}}</code> — At-Risk / Breached / in range</li>
+              <li><code>{{priority}}</code> — parent SLA ticket priority</li>
+              <li><code>{{expiryDate}}</code> — expiry</li>
+              <li><code>{{assignee}}</code> — @mentions configured in Alert Triggers &amp; Recipients</li>
+            </ul>
+            <textarea id="relayCommentTemplate" class="template-input" rows="6" placeholder="Leave empty to use the default message."></textarea>
+            <p class="hint small field-hint deemph">~500 characters or less reads well in Jira.</p>
+          </div>
+        </div>
+      </div>
     </section>
 
     <div class="actions">
