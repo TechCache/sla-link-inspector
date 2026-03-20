@@ -27,7 +27,7 @@ This repository is **private** and intended for **authorized Tech Cache contribu
 • **Send to linked tickets** — Post a comment on each linked ticket with status (At-Risk, Breached, in range), date of expiration, and @mention assignees  
 • **Optional Slack** — Same message to a Slack channel with clickable links to the posted tickets  
 • **Send to all or specific tickets** — Choose all linked tickets or list which keys to notify  
-• **Alerts** when a linked issue’s SLA becomes at risk or breached (configurable notifications on the parent issue)  
+• **Configurable SLA-driven notifications** — When someone **opens the Linked SLA Alerts panel** on the **parent** issue, the app evaluates SLA state and (per admin rules) can post on **linked** tickets, send Slack/email/DMs, and run **time-left threshold** alerts. **There is no separate Forge background scheduler** in this app—activity is driven by that panel load (and manual **Send SLA Alert**). See `sla-link-inspector/docs/WHEN-ALERTS-RUN.md`.  
 • **Admin configuration** — Trigger conditions, who to notify, Jira comments, Slack webhook or Bot token, custom templates  
 
 ---
@@ -56,9 +56,9 @@ Install on a Jira site using the **install link** from the Atlassian Developer C
 ## Usage
 
 1. Open a Jira issue that contains linked tickets.  
-2. Locate the **Linked SLA Alerts** panel in the issue view.  
+2. Locate the **Linked SLA Alerts** panel in the issue view (**opening the panel** loads data and is when configurable automatic notifications are evaluated—see `sla-link-inspector/docs/WHEN-ALERTS-RUN.md`).  
 3. Review SLA context for linked issues.  
-4. Use **Send SLA Alert to Linked Tickets** (and related actions) per your workflow.
+4. Use **Send SLA Alert** (and related actions) per your workflow.
 
 Administrators configure triggers and integrations from **Jira Admin → Manage Apps → Linked SLA Alerts**.
 
@@ -92,4 +92,4 @@ To match Jira users to Slack for DMs, the app may use **email** from **Jira Clou
 
 ## License and distribution
 
-**Linked SLA Alerts** is **commercial software**: customers obtain it from the **Atlassian Marketplace** under the **[Terms of Service](https://techcache.github.io/terms)**. This source tree is **not** offered for open-source redistribution. The npm `package.json` uses **`UNLICENSED`** to reflect that; replace or remove any legacy **`LICENSE`** file in the repo root **with counsel** when you finalize the private-repo policy so it matches your commercial model.
+**Linked SLA Alerts** is **commercial software**: customers obtain it from the **Atlassian Marketplace** under the **[Terms of Service](https://techcache.github.io/terms)**. This source tree is **not** offered for open-source redistribution. The Forge app’s `package.json` (`sla-link-inspector/package.json`, package name **`linked-sla-alerts-forge`**) uses **`UNLICENSED`** to reflect that; replace or remove any legacy **`LICENSE`** file in the repo root **with counsel** when you finalize the private-repo policy so it matches your commercial model.
