@@ -4,8 +4,8 @@ import { kvs } from '@forge/kvs';
 
 const resolver = new Resolver();
 
-/** Set to true to temporarily bypass license check (e.g. for screenshots). Set back to false before release. */
-const LICENSE_CHECK_BYPASS = true;
+/** Set to true to temporarily bypass license check (e.g. for screenshots). Must be false for Marketplace production. */
+const LICENSE_CHECK_BYPASS = false;
 
 /**
  * Get license status for Marketplace paid app. In PRODUCTION, a valid paid license has license?.isActive === true.
@@ -1305,41 +1305,6 @@ function templateToAdf(template, vars, mentions) {
 }
 
 /**
- * Build ADF body for a "warn assignee" comment with at-risk and breach dates.
- * Comment is posted on the parent issue. linkedIssueKey identifies the linked ticket.
- * @param {object} opts - { linkedIssueKey, atRiskDate, breachedDate, alreadyAtRisk, alreadyBreached }
- */
-function buildWarnAssigneeCommentBody(opts) {
-  const {
-    linkedIssueKey,
-    atRiskDate,
-    breachedDate,
-    alreadyAtRisk,
-    alreadyBreached,
-  } = opts;
-  const formatDate = (d) => (d != null ? new Date(d).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : null);
-  const ticketRef = linkedIssueKey ? `Linked ticket ${linkedIssueKey}'s SLA` : 'This ticket\'s SLA';
-  const content = [{ type: 'text', text: 'SLA status: ', marks: [{ type: 'strong' }] }];
-  if (alreadyBreached) {
-    content.push({ type: 'text', text: `${ticketRef} is already breached (as of ${formatDate(breachedDate)}). ` });
-  } else if (alreadyAtRisk) {
-    content.push({ type: 'text', text: `${ticketRef} is already at risk. It will be breached on ${formatDate(breachedDate)} if no action is taken. ` });
-  } else {
-    const atRiskStr = atRiskDate != null ? `at risk on ${formatDate(atRiskDate)}` : null;
-    const breachStr = breachedDate != null ? `breached on ${formatDate(breachedDate)}` : null;
-    const parts = [atRiskStr, breachStr].filter(Boolean);
-    content.push({ type: 'text', text: `${ticketRef} will become ${parts.join(' and ')} if no action is taken.` });
-  }
-  return {
-    body: {
-      version: 1,
-      type: 'doc',
-      content: [{ type: 'paragraph', content }],
-    },
-  };
-}
-
-/**
  * Resolve field names or IDs (e.g. "Request Participants", "customfield_10001") to Jira field IDs.
  * Returns a Map: userInput -> fieldId (for requesting in issue fields).
  */
@@ -2563,116 +2528,6 @@ resolver.define('testFireSlaComment', async ({ payload }) => {
     return { ok: true, message: `Comment posted on linked ticket ${linkedIssueKey} (parent ${parentIssueKey} SLA: ${parentSla.status}).` };
   } catch (e) {
     console.error('[SLA Link Inspector] testFireSlaComment error', e.message);
-    return { ok: false, error: e.message || 'Unknown error' };
-  }
-});
-
-/**
- * Post a comment on the parent issue (the one the user has open) warning the parent's assignee when the linked ticket's SLA will become at-risk and/or breached.
- * Payload: { parentIssueKey, linkedIssueKey }.
- */
-resolver.define('warnAssigneeSlaDates', async ({ payload }) => {
-  const licenseStatus = getLicenseStatus();
-  if (licenseStatus.isProduction && !licenseStatus.licensed) {
-    return { ok: false, error: licenseStatus.reason || 'A valid license is required. Please upgrade from the Marketplace.' };
-  }
-  const linkedIssueKey = payload?.linkedIssueKey != null ? String(payload.linkedIssueKey).trim() : '';
-  const parentIssueKey = payload?.parentIssueKey != null ? String(payload.parentIssueKey).trim() : '';
-  if (!linkedIssueKey) return { ok: false, error: 'Missing linkedIssueKey.' };
-  if (!parentIssueKey) return { ok: false, error: 'Missing parentIssueKey.' };
-  try {
-    const jira = api.asApp().requestJira.bind(api.asApp());
-    const slaField = await getSlaFieldForRequest();
-    const fieldsParam = ['summary', 'status', 'assignee', 'priority'];
-    if (slaField?.id) fieldsParam.push(slaField.id);
-    const fieldsQuery = fieldsParam.join(',');
-    const [linkedRes, parentRes] = await Promise.all([
-      jira(route`/rest/api/3/issue/${linkedIssueKey}?fields=${fieldsQuery}`),
-      jira(route`/rest/api/3/issue/${parentIssueKey}?fields=assignee`),
-    ]);
-    if (!linkedRes.ok) return { ok: false, error: `Failed to load linked issue: ${linkedRes.status}` };
-    if (!parentRes.ok) return { ok: false, error: `Failed to load parent issue: ${parentRes.status}` };
-    const linkedIssue = await linkedRes.json();
-    const parentIssue = await parentRes.json();
-    const slaData = getSlaData(linkedIssue.fields, slaField);
-    const parentAssignee = parentIssue.fields?.assignee;
-    const parentAccountId = parentAssignee?.accountId ?? null;
-    const parentDisplayName = parentAssignee?.displayName ?? parentAssignee?.name ?? null;
-    const hoursRemaining = slaData.hoursRemaining;
-    const totalHours = slaData.totalHours;
-
-    const now = Date.now();
-    const msPerHour = 60 * 60 * 1000;
-    let atRiskDate = null;
-    let breachedDate = null;
-    let alreadyAtRisk = false;
-    let alreadyBreached = false;
-
-    if (hoursRemaining != null) {
-      if (hoursRemaining <= 0) {
-        alreadyBreached = true;
-        breachedDate = now + hoursRemaining * msPerHour;
-      } else {
-        breachedDate = now + hoursRemaining * msPerHour;
-        if (totalHours != null && totalHours > 0) {
-          const atRiskThresholdHours = totalHours * 0.25;
-          if (hoursRemaining <= atRiskThresholdHours) {
-            alreadyAtRisk = true;
-          } else {
-            atRiskDate = now + (hoursRemaining - atRiskThresholdHours) * msPerHour;
-          }
-        }
-      }
-    }
-
-    if (breachedDate == null && atRiskDate == null && !alreadyAtRisk && !alreadyBreached) {
-      // Linked issue has no SLA time data; post a short note and point to the other action
-      const noDataBody = {
-        body: {
-          version: 1,
-          type: 'doc',
-          content: [{
-            type: 'paragraph',
-            content: [
-              { type: 'text', text: 'Linked ticket ', marks: [] },
-              { type: 'text', text: linkedIssueKey, marks: [{ type: 'strong' }] },
-              { type: 'text', text: ' has no SLA remaining time data. Use the "Send SLA to linked tickets" button above to post this issue\'s SLA to linked tickets.', marks: [] },
-            ],
-          }],
-        },
-      };
-      const noDataRes = await jira(route`/rest/api/3/issue/${parentIssueKey}/comment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(noDataBody),
-      });
-      if (!noDataRes.ok) {
-        return { ok: false, error: `Failed to post comment: ${noDataRes.status}` };
-      }
-      return { ok: true, message: `Comment posted: linked ticket ${linkedIssueKey} has no SLA time data. Use "Send SLA to linked tickets" to post this issue's SLA.` };
-    }
-
-    const body = buildWarnAssigneeCommentBody({
-      linkedIssueKey,
-      atRiskDate,
-      breachedDate,
-      alreadyAtRisk,
-      alreadyBreached,
-    });
-    const commentRes = await jira(route`/rest/api/3/issue/${parentIssueKey}/comment`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!commentRes.ok) {
-      const errText = await commentRes.text();
-      console.error('[SLA Link Inspector] warnAssigneeSlaDates: failed to add comment', commentRes.status, errText);
-      return { ok: false, error: `Failed to post comment: ${commentRes.status}` };
-    }
-    console.log('[SLA Link Inspector] Resolver: warn-assignee comment posted on parent', parentIssueKey);
-    return { ok: true, message: `Warning comment posted on this ticket (${parentIssueKey}).` };
-  } catch (e) {
-    console.error('[SLA Link Inspector] warnAssigneeSlaDates error', e.message);
     return { ok: false, error: e.message || 'Unknown error' };
   }
 });

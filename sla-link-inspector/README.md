@@ -33,3 +33,4 @@ This directory contains the Forge app. Below is developer-focused reference.
 
 - Uses standard Jira **issue links** (REST `issuelinks`). “Linked work items” in Jira may come from a different source and are not included.
 - Finds an SLA custom field by name (e.g. containing “SLA”) and shows status (breached / at risk / within / no SLA) for each linked issue.
+- **When automatic SLA notifications run:** there is no Forge cron in this app; configurable alerts are evaluated when **`getLinkedIssueSlas`** runs (typically **opening the issue panel** on the parent issue). See **[WHEN-ALERTS-RUN.md](docs/WHEN-ALERTS-RUN.md)** and **[RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md)** before release.

@@ -29,7 +29,7 @@ So:
      Calls the license helper and appends `licenseStatus: { licensed, reason? }` to the response so the issue panel can show an upgrade banner or restrict actions.
    - **`getAdminConfig`**  
      Same: appends `licenseStatus` to the returned config so the admin page can show “Upgrade to use” or disable saving.
-   - **Optional enforcement:** In `setAdminConfig`, `warnAssigneeSlaDates`, `testSlackWebhook`, you can check the same helper and return `{ ok: false, error: 'A valid license is required. Please upgrade from the Marketplace.' }` when `licensed === false` in production. Right now the code only *reports* license status; it does not block.
+   - **Production enforcement:** When unlicensed in production, mutating resolver methods return errors (e.g. `setAdminConfig`, `testSlackWebhook`, `testSlackDm`, `saveMySlackUserId`, `notifyLinkedTicketsOfCurrentSla`). The panel still receives `licenseStatus` from `getLinkedIssueSlas` / `getAdminConfig` for UI banners and disabled actions.
 
 2. **Frontend (issue panel)**  
    - After `invoke('getLinkedIssueSlas', ...)`, read `result.licenseStatus`. If `licensed === false`, show a short message (e.g. “Upgrade to a paid license to use Linked SLA Alerts”) and optionally hide or disable the table / “Show SLA Details”.
