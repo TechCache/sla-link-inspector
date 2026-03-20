@@ -2,9 +2,24 @@
 
 A Jira Cloud app that **notifies linked tickets of SLA status and expiry**. Use the **Send SLA Alert to Linked Tickets** panel to send this issue’s SLA (status and expiration date) to linked tickets—post a comment and @mention assignees, with optional Slack delivery and clickable links.
 
-Built by **TechCache**, Linked SLA Alerts helps support and operational teams keep linked work in sync: when an issue has an SLA, relay it to linked tickets so assignees are advised without needing access to the host project.
+Built by **Tech Cache**, Linked SLA Alerts helps support and operational teams keep linked work in sync: when an issue has an SLA, relay it to linked tickets so assignees are advised without needing access to the host project.
 
-The app runs entirely on Atlassian Forge, meaning all processing happens inside Atlassian infrastructure with no external servers required.
+The app runs entirely on **Atlassian Forge**, meaning core processing happens inside **Atlassian** infrastructure. Tech Cache does **not** operate separate long-lived application servers for that core logic.
+
+**Customer-facing legal & support:**
+
+- [Terms of Service](https://techcache.github.io/terms)  
+- [Privacy Policy](https://techcache.github.io/privacy)  
+- [Legal information](https://techcache.github.io/legal)  
+- Support: **techcache@proton.me**
+
+---
+
+## Repository access
+
+This repository is **private** and intended for **authorized Tech Cache contributors** only. **Linked SLA Alerts** is distributed to customers through the **Atlassian Marketplace** under Tech Cache’s **Terms** and **Privacy Policy**, not through public source distribution.
+
+---
 
 ## Features
 
@@ -15,94 +30,66 @@ The app runs entirely on Atlassian Forge, meaning all processing happens inside 
 • **Alerts** when a linked issue’s SLA becomes at risk or breached (configurable notifications on the parent issue)  
 • **Admin configuration** — Trigger conditions, who to notify, Jira comments, Slack webhook or Bot token, custom templates  
 
-## Installation (Developer Setup)
+---
 
-The Forge app lives in the **`sla-link-inspector/`** subdirectory. All commands below must be run from that directory.
+## Installation (authorized developers)
 
-**Clone the repository and go into the app directory:**
-
-```bash
-git clone https://github.com/TechCache/sla-link-inspector.git
-cd sla-link-inspector/sla-link-inspector
-```
-
-**Install dependencies:**
+The Forge app lives in the **`sla-link-inspector/`** subdirectory. Run commands from that directory.
 
 ```bash
+cd sla-link-inspector
 npm install
-```
-
-**Bundle the frontend** (required before deploy):
-
-```bash
 npm run build
 ```
 
-**Deploy the Forge app**
-
-Forge keeps separate builds per **environment**. Plain `forge deploy` (no `-e`) targets **Development** by default, so your production Jira site will not see those builds until you deploy to **Production** and use the Production install link.
+**Deploy** (Forge uses separate environments):
 
 | Goal | Command |
 |------|---------|
-| **Production** (live sites, Marketplace) | `npm run deploy` or `npm run deploy:production` or `forge deploy -e production` |
-| **Development** (testing) | `npm run deploy:dev` or `forge deploy -e development` |
+| **Production** (Marketplace) | `npm run deploy` / `npm run deploy:production` / `forge deploy -e production` |
+| **Development** | `npm run deploy:dev` / `forge deploy -e development` |
 
-**Install the app on a Jira site**
+Install on a Jira site using the **install link** from the Atlassian Developer Console for the matching environment, or `forge install --environment production`.
 
-Use an install link from the same environment you deployed to (Developer Console → your app → **Production** or **Development** → Get install link). Or:
-
-```bash
-forge install --environment production
-# or
-forge install --environment development
-```
-
-If the app was installed from **Development** but you deployed only to **Production**, Jira will still run the old Development build—reinstall or upgrade using the **Production** install link after `forge deploy -e production`.
+---
 
 ## Usage
 
-1. Open a Jira issue that contains linked tickets.
-2. Locate the **Linked SLA Alerts** panel in the issue view.
-3. Review the SLA status of linked issues in the table.
-4. Use **Show SLA Details** to post contextual SLA timing information in the issue comments.
+1. Open a Jira issue that contains linked tickets.  
+2. Locate the **Linked SLA Alerts** panel in the issue view.  
+3. Review SLA context for linked issues.  
+4. Use **Send SLA Alert to Linked Tickets** (and related actions) per your workflow.
 
-Administrators can configure notification triggers and integrations from **Jira Admin → Manage Apps → Linked SLA Alerts** settings page.
+Administrators configure triggers and integrations from **Jira Admin → Manage Apps → Linked SLA Alerts**.
+
+---
 
 ## Who it’s for
 
-**The panel only shows SLA for linked issues in projects the viewer can already see in Jira.** We don’t bypass permissions: if you don’t have access to a linked issue’s project, that row will show “Error loading.” Grant at least **browse** access to the other project if you want the panel to display those SLAs. The app cannot show SLAs for queues or projects you have no access to.
+**The panel only shows data for linked issues in projects the viewer can already see in Jira.** The app does not bypass Jira permissions.
+
+---
 
 ## Privacy & Security
 
-Linked SLA Alerts runs entirely on Atlassian Forge infrastructure. The app does not store customer issue data outside Atlassian systems. Configuration settings are stored within Forge storage.
+Linked SLA Alerts runs on **Forge**; configuration is stored in **Forge app storage**. Optional **Slack** and **webhook** integrations send data to endpoints **the customer** configures.
 
-### Slack DMs and Jira Email API
+### Slack DMs and Jira email APIs
 
-To send Slack DMs by matching Jira users to Slack members, the app needs each user’s **email**. The app uses **supported Jira Cloud REST APIs** (as the Forge app):
+To match Jira users to Slack for DMs, the app may use **email** from **Jira Cloud REST APIs** (scopes include **`read:email-address:jira`** where declared). Visibility is controlled by Atlassian and org settings. Admins can also map **Jira accountId → Slack member ID** so DMs work without email for mapped users.
 
-1. **`GET /rest/api/3/user/email`** and **`GET /rest/api/3/user/email/bulk`** — scope **`read:email-address:jira`**
-2. **`GET /rest/api/3/user/bulk`** — scope **`read:jira-user`** (response `values[]` may include `emailAddress` per Atlassian’s docs)
-3. **`GET /rest/api/3/user`** — same scope; may 404 or omit email when visibility differs from the endpoints above
-4. **`emailAddress` on assignee/reporter/watchers** from **`GET /rest/api/3/issue/...`** on the linked issue, then the parent
+**Partner notes:** `sla-link-inspector/docs/MARKETPLACE-SLACK-DM.md`  
 
-**Marketplace / partner checklist:** see **`sla-link-inspector/docs/MARKETPLACE-SLACK-DM.md`** (approval process, QA, and disclosure).
+**Full policy:** [Privacy Policy](https://techcache.github.io/privacy)
 
-**After upgrading to a build that adds email scopes:** a Jira **site admin** must **accept the new permission** (re-consent) on that site—typically **Jira settings → Apps → Manage your apps → Linked SLA Alerts → Update / Review permissions**, or reinstall the app.
-
-**If Forge logs show** `Slack DM skipped — no email for Jira user` **or** `GET /user/email` **403**: the Email API is blocked until an admin approves **`read:email-address:jira`**. Use the detailed **`[SLA Link Inspector] Jira email for Slack DM`** lines in logs (status code and body snippet).
-
-**If logs show `GET /user/email/bulk` with `bodySnippet=[]`:** Jira returned **no unrestricted email rows** for that account. That is controlled by **Atlassian account privacy**, **site membership**, and **org policy**—the app cannot override it. **Always notify these emails** in app settings is an optional way to include fixed addresses in addition to Jira-derived recipients.
-
-**Slack member ID mapping (no Jira email required):** In **app admin → Slack → Direct Messages**, you can list **Jira `accountId` → Slack member ID** (`U…`) one per line. Each user can also save their own ID from the **issue panel** (“Slack DM fallback”). DMs then use `conversations.open` by member ID (`im:write`); **`users:read.email` is not required** for those users.
-
-See Atlassian’s [Profile visibility and apps](https://developer.atlassian.com/cloud/jira/platform/profile-visibility/), [Get user email](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-users/#api-rest-api-3-user-email-get), and [Get bulk users](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-users/#api-rest-api-3-user-bulk-get).
-
-See the full [privacy policy](https://techcache.github.io/privacy).
+---
 
 ## Support
 
-For support or questions: **techcache@proton.me**
+**techcache@proton.me** · [Support & security](https://techcache.github.io/support)
 
-## License
+---
 
-MIT License
+## License and distribution
+
+**Linked SLA Alerts** is **commercial software**: customers obtain it from the **Atlassian Marketplace** under the **[Terms of Service](https://techcache.github.io/terms)**. This source tree is **not** offered for open-source redistribution. The npm `package.json` uses **`UNLICENSED`** to reflect that; replace or remove any legacy **`LICENSE`** file in the repo root **with counsel** when you finalize the private-repo policy so it matches your commercial model.
