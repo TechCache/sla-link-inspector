@@ -70,6 +70,8 @@ const DEFAULT_ADMIN_CONFIG = {
   notificationSlackDmEmails: [],
   /** Jira accountId → Slack member ID (U… / W…) for DMs when Jira does not expose email. Merged with per-user self-map. */
   slackUserIdByAccountId: {},
+  /** When true, users cannot save/remove Slack IDs from the issue panel; admin map + existing self-map still apply until cleared in admin. */
+  slackMappingAdminOnly: false,
   emailWebhookUrl: '',
   slackWebhookUrl: '',
   slackChannelId: '',
@@ -739,6 +741,26 @@ function extractAccountIdFromForgeContext(context) {
 }
 
 /**
+ * Issue panel “link my Slack ID”: always the signed-in Jira user (Forge context or /myself).
+ * Do not use the issue assignee — watchers/reporters/assignees each need their own row keyed by their accountId.
+ */
+async function resolveInvokerJiraAccountId(context) {
+  const fromContext = extractAccountIdFromForgeContext(context);
+  if (fromContext) return { accountId: fromContext, source: 'context' };
+  try {
+    const res = await api.asUser().requestJira(route`/rest/api/3/myself`);
+    if (res.ok) {
+      const me = await res.json().catch(() => ({}));
+      const aid = me?.accountId || null;
+      if (aid) return { accountId: String(aid), source: 'invoking_user' };
+    }
+  } catch (e) {
+    console.warn('[SLA Link Inspector] resolveInvokerJiraAccountId /myself failed', e?.message);
+  }
+  return { accountId: null, source: null };
+}
+
+/**
  * Test DM target: issue assignee (from key in payload/context) → Forge context user → invoking Jira user via /myself.
  * Admin pages often omit issue + accountId in context; /myself fixes “DM the person clicking Test”.
  */
@@ -926,14 +948,22 @@ resolver.define('saveMySlackUserId', async ({ payload, context }) => {
   if (licenseStatus.isProduction && !licenseStatus.licensed) {
     return { ok: false, error: licenseStatus.reason || 'A valid license is required.' };
   }
+  const adminCfg = await getAdminConfig();
+  if (adminCfg.slackMappingAdminOnly) {
+    return {
+      ok: false,
+      error:
+        'Your site admin has disabled linking Slack IDs from this panel. Mappings are managed in the app’s configuration (Jira → Slack ID).',
+    };
+  }
   const raw = payload?.slackUserId != null ? String(payload.slackUserId) : '';
   const sid = raw.trim() === '' ? null : normalizeSlackMemberId(raw);
   if (raw.trim() !== '' && !sid) {
     return { ok: false, error: 'Invalid Slack member ID. Use your ID from Slack (Profile → … → Copy member ID), e.g. U01234ABCDE.' };
   }
-  const { accountId } = await resolveTestSlackDmTargetAccountId('', context);
+  const { accountId } = await resolveInvokerJiraAccountId(context);
   if (!accountId) {
-    return { ok: false, error: 'Could not determine your Jira account. Open this panel from a Jira issue while signed in.' };
+    return { ok: false, error: 'Could not determine your Jira account. Open this panel while signed in to Jira.' };
   }
   try {
     const cur = (await kvs.get(SLACK_SELF_USER_MAP_KEY)) || {};
@@ -957,23 +987,26 @@ resolver.define('saveMySlackUserId', async ({ payload, context }) => {
 /** Whether the current user has a merged Slack member ID mapping (admin or self). */
 resolver.define('getSlackLinkStatus', async ({ context }) => {
   try {
-    const { accountId } = await resolveTestSlackDmTargetAccountId('', context);
+    const { accountId } = await resolveInvokerJiraAccountId(context);
     if (!accountId) {
       return {
         accountKnown: false,
         hasSlackMapping: false,
         slackUserIdMasked: null,
         mappingSource: 'none',
+        selfServiceAllowed: true,
       };
     }
     const config = await getAdminConfig();
     const { effectiveSid, mappingSource } = await getSlackIdResolutionForAccount(config, accountId);
     const sid = effectiveSid;
+    const adminOnly = Boolean(config.slackMappingAdminOnly);
     return {
       accountKnown: true,
       hasSlackMapping: Boolean(sid),
       slackUserIdMasked: sid && sid.length > 6 ? `${sid.slice(0, 3)}…${sid.slice(-3)}` : sid || null,
       mappingSource,
+      selfServiceAllowed: !adminOnly,
     };
   } catch (e) {
     console.warn('[SLA Link Inspector] getSlackLinkStatus', e?.message);
@@ -982,6 +1015,7 @@ resolver.define('getSlackLinkStatus', async ({ context }) => {
       hasSlackMapping: false,
       slackUserIdMasked: null,
       mappingSource: 'none',
+      selfServiceAllowed: true,
     };
   }
 });

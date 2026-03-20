@@ -380,7 +380,7 @@ async function renderSlackSelfLinkSection(licensed) {
   const desc = document.createElement('p');
   desc.className = 'slack-dm-fallback-desc';
   desc.innerHTML =
-    `Jira doesn't always share your email with apps. Paste your <a href="https://api.slack.com/methods/users.lookupByEmail" target="_blank" rel="noopener noreferrer">Slack member ID</a> so this app can DM you directly.`;
+    `If you’re on the SLA alert list for this project (assignee, reporter, watcher, etc.) and Jira doesn’t share your email with apps, paste your <a href="https://api.slack.com/methods/users.lookupByEmail" target="_blank" rel="noopener noreferrer">Slack member ID</a> so DMs can reach <strong>you</strong>.`;
 
   const row = document.createElement('div');
   row.className = 'slack-self-link-row';
@@ -432,12 +432,19 @@ async function renderSlackSelfLinkSection(licensed) {
   }
 
   function updateTrigger(linked) {
+    const adminOnly = st && st.selfServiceAllowed === false;
     if (linked && st?.mappingSource === 'admin') {
       trigger.textContent = 'Slack ID linked ✓ (workspace admin) →';
+      trigger.classList.add('slack-dm-fallback-trigger--linked');
+    } else if (linked && adminOnly) {
+      trigger.textContent = 'Slack ID linked ✓ (contact admin to change) →';
       trigger.classList.add('slack-dm-fallback-trigger--linked');
     } else if (linked) {
       trigger.textContent = 'Slack ID linked ✓ — update or remove →';
       trigger.classList.add('slack-dm-fallback-trigger--linked');
+    } else if (adminOnly) {
+      trigger.textContent = 'Slack ID: managed in app configuration →';
+      trigger.classList.remove('slack-dm-fallback-trigger--linked');
     } else {
       trigger.textContent = 'Not receiving Slack DMs? Link your Slack ID →';
       trigger.classList.remove('slack-dm-fallback-trigger--linked');
@@ -449,6 +456,13 @@ async function renderSlackSelfLinkSection(licensed) {
       saveBtn.disabled = true;
       clearBtn.disabled = true;
       input.disabled = true;
+      return;
+    }
+    if (st && st.selfServiceAllowed === false) {
+      saveBtn.disabled = true;
+      clearBtn.disabled = true;
+      input.disabled = true;
+      input.placeholder = 'Managed in app configuration';
       return;
     }
     if (st?.hasSlackMapping && st.mappingSource === 'admin') {
@@ -472,6 +486,19 @@ async function renderSlackSelfLinkSection(licensed) {
     }
     if (!accountKnown) {
       statusEl.textContent = 'Sign in to Jira to link your Slack ID.';
+      applyButtonStateFromSt();
+      return;
+    }
+
+    if (st && st.selfServiceAllowed === false) {
+      if (st.hasSlackMapping && st.mappingSource === 'admin') {
+        statusEl.textContent = `Linked: ${st.slackUserIdMasked} — set by a workspace admin in app settings. It can’t be removed from this panel; ask an admin to delete your line in the Jira → Slack ID mapping.`;
+      } else if (st.hasSlackMapping && st.slackUserIdMasked) {
+        statusEl.textContent = `Linked: ${st.slackUserIdMasked} — self-service linking is turned off. Ask a workspace admin to update the Jira → Slack ID mapping if this needs to change.`;
+      } else {
+        statusEl.textContent =
+          'Workspace policy: Slack member IDs are added only in the app configuration (Jira → Slack ID mapping). Ask an admin to add your Jira account there.';
+      }
       applyButtonStateFromSt();
       return;
     }

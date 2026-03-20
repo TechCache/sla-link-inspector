@@ -24,6 +24,7 @@ const CONFIG_KEYS = [
   'slackWebhookUrl',
   'slackChannelId',
   'slackBotToken',
+  'slackMappingAdminOnly',
   'customTemplate',
   'relayCommentTemplate',
 ];
@@ -356,11 +357,8 @@ async function load() {
       mapTa.value = formatSlackUserIdByAccountIdForForm(config.slackUserIdByAccountId);
     }
     syncSlackMappingDisclosureTrigger();
-    if (slackMappingTextareaHasContent()) {
-      setSlackMappingDisclosureExpanded(true);
-    } else {
-      setSlackMappingDisclosureExpanded(false);
-    }
+    // Keep Jira → Slack mapping collapsed on load; trigger still shows ✓ when configured.
+    setSlackMappingDisclosureExpanded(false);
     renderTimeLeftWarningRows(config.timeLeftWarningThresholds);
     const tle = document.getElementById('timeLeftWarningsEnabled');
     if (tle) tle.checked = Boolean(config.timeLeftWarningsEnabled);

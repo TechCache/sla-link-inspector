@@ -130,6 +130,9 @@
                 <div class="admin-slack-mapping-inner">
                   <label class="field-label dm-extra-label" for="slackUserIdByAccountId">Jira account ID → Slack member ID (optional)</label>
                   <textarea id="slackUserIdByAccountId" class="text-input" rows="4" placeholder="e.g. 712020:abc123def,U0AMJAW5W9K&#10;712020:xyz789ghi,U1BMKBX6X0L" style="margin-top: 6px; max-width: 520px; resize: vertical; font-family: monospace; font-size: 12px;"></textarea>
+                  <p class="hint small deemph">One Slack ID per Jira user. Add many rows for many users, or let each person link themselves from the issue panel. DMs use the mapping for whoever is notified (assignee, reporter, watchers, etc.) — each of them can open the panel while signed in to save their own Slack ID.</p>
+                  <label class="checkbox-label block-label" style="margin-top: 10px;"><input type="checkbox" id="slackMappingAdminOnly" /> Slack IDs only via this admin mapping (disable Save/Remove on the issue panel)</label>
+                  <p class="hint small deemph">When checked, users cannot add or remove Slack IDs from the issue panel. Mappings already saved from the panel keep working until an admin adds the same Jira user here (admin row wins) or you turn this off and the user removes their entry.</p>
                   <p class="hint small deemph">When Jira does not expose email, DMs still work if the user's Slack member ID is listed here. Admin rows override self-service entries for the same Jira account.</p>
                   <details class="admin-details deemph">
                     <summary>Slack App Permissions (Admins)</summary>
