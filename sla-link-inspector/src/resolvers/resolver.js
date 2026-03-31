@@ -932,7 +932,7 @@ resolver.define('testSlackDm', async ({ payload, context }) => {
       : '';
     return {
       ok: true,
-      message: `Test DM attempted to: ${attempted.join(', ')}.${assigneeNote} Note: the DM will appear to the recipient as a conversation with the SLA Link Inspector app. If you don’t receive it, check Slack scopes (users:read.email, im:write) and that the email matches a workspace member.`,
+      message: `Test DM attempted to: ${attempted.join(', ')}.${assigneeNote} Note: the DM will appear to the recipient as a conversation with the Linked SLA Alerts app. If you don’t receive it, check Slack scopes (users:read.email, im:write) and that the email matches a workspace member.`,
     };
   } catch (e) {
     return { ok: false, error: e.message || 'Slack DM test failed.' };

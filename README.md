@@ -1,6 +1,6 @@
 # Linked SLA Alerts
 
-This repository contains the source code for the **SLA Link Inspector** Atlassian Forge app maintained by **Tech Cache**.
+This repository contains the source code for the **Linked SLA Alerts** Atlassian Forge app maintained by **Tech Cache**.
 
 A Jira Cloud app that notifies linked tickets of SLA status and expiry. Use the **Send SLA Alert to Linked Tickets** panel to send an issue's SLA status and expiration date to linked tickets, post a comment, mention assignees, and optionally deliver the same message to Slack with clickable links.
 
