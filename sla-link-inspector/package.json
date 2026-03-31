@@ -7,6 +7,9 @@
   "scripts": {
     "lint": "eslint src/**/*",
     "build": "node scripts/bundle-frontend.js",
+    "scan:sca": "npm audit --audit-level=high",
+    "scan:deps": "npm outdated",
+    "scan:all": "npm run scan:sca && npm run scan:deps",
     "predeploy": "npm run build",
     "deploy": "forge deploy -e production",
     "deploy:dev": "npm run build && forge deploy -e development",
