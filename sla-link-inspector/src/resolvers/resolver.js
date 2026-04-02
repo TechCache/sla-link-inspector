@@ -1,5 +1,5 @@
 import Resolver from '@forge/resolver';
-import api, { route, getAppContext } from '@forge/api';
+import api, { route, getAppContext, authorize } from '@forge/api';
 import { kvs } from '@forge/kvs';
 
 const resolver = new Resolver();
@@ -36,6 +36,7 @@ function getLicenseStatus() {
 
 const SLA_STATUS_STORAGE_PREFIX = 'sla-link-inspector:';
 const ADMIN_CONFIG_KEY = SLA_STATUS_STORAGE_PREFIX + 'admin-config';
+const ADMIN_CONFIG_SLACK_BOT_TOKEN_SECRET_KEY = `${ADMIN_CONFIG_KEY}:slack-bot-token`;
 /** Per-user Slack member IDs (self-service from issue panel). Admin map in config overrides these keys. */
 const SLACK_SELF_USER_MAP_KEY = SLA_STATUS_STORAGE_PREFIX + 'slack-self-user-map';
 
@@ -194,16 +195,212 @@ function normalizeSlackMemberId(raw) {
   return s;
 }
 
+function normalizeSlackWebhookUrl(raw) {
+  if (raw == null) return '';
+  const s = String(raw).trim();
+  if (!s) return '';
+  try {
+    const url = new URL(s);
+    if (url.protocol !== 'https:' || url.hostname !== 'hooks.slack.com') return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHttpsWebhookUrl(raw) {
+  if (raw == null) return '';
+  const s = String(raw).trim();
+  if (!s) return '';
+  try {
+    const url = new URL(s);
+    if (url.protocol !== 'https:') return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSlackChannelId(raw) {
+  if (raw == null) return '';
+  const s = String(raw).trim().toUpperCase();
+  if (!s) return '';
+  return /^[CFGD][A-Z0-9]{8,}$/.test(s) ? s : null;
+}
+
+function normalizeEmailList(values) {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set();
+  return values
+    .map((s) => String(s).trim().toLowerCase())
+    .filter((s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s))
+    .filter((s) => {
+      if (seen.has(s)) return false;
+      seen.add(s);
+      return true;
+    });
+}
+
+function limitTemplateLength(raw, max = 5000) {
+  const s = String(raw || '');
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+function normalizeBoundedText(raw, max = 255) {
+  if (raw == null) return '';
+  const filtered = Array.from(String(raw))
+    .filter((ch) => {
+      const code = ch.charCodeAt(0);
+      return !((code >= 0 && code <= 31) || code === 127);
+    })
+    .join('');
+  return filtered.trim().slice(0, max);
+}
+
+function normalizeIssueKey(raw) {
+  const s = normalizeBoundedText(raw, 64).toUpperCase();
+  if (!s) return '';
+  return /^[A-Z][A-Z0-9_]*-\d+$/.test(s) ? s : null;
+}
+
+function normalizeIssueKeyList(values) {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const value of values) {
+    const key = normalizeIssueKey(value);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(key);
+  }
+  return out;
+}
+
+function normalizeFieldIdentifier(raw) {
+  const s = normalizeBoundedText(raw, 100);
+  if (!s) return '';
+  return /^(customfield_\d+|[A-Za-z][A-Za-z0-9._-]{0,99})$/.test(s) ? s : null;
+}
+
+function normalizeAccountId(raw) {
+  const s = normalizeBoundedText(raw, 128);
+  if (!s) return '';
+  return /^[A-Za-z0-9:_-]+$/.test(s) ? s : null;
+}
+
+function normalizeDisplayName(raw) {
+  return normalizeBoundedText(raw, 200);
+}
+
+function normalizeSearchQuery(raw) {
+  return normalizeBoundedText(raw, 100);
+}
+
+function normalizeUserMentionList(values) {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const value of values) {
+    const accountId = normalizeAccountId(value?.accountId);
+    if (!accountId || seen.has(accountId)) continue;
+    seen.add(accountId);
+    out.push({
+      accountId,
+      displayName: normalizeDisplayName(value?.displayName),
+    });
+  }
+  return out;
+}
+
+function normalizeFieldIdentifierList(values) {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const value of values) {
+    const id = normalizeFieldIdentifier(value);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+async function getStoredSlackBotToken() {
+  try {
+    const token = await kvs.getSecret(ADMIN_CONFIG_SLACK_BOT_TOKEN_SECRET_KEY);
+    return token != null && String(token).trim() !== '' ? String(token).trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+async function canUserBrowseIssue(issueKey) {
+  const key = normalizeIssueKey(issueKey);
+  if (!key) return false;
+  try {
+    const result = await authorize().onJira([
+      {
+        permissions: ['BROWSE_PROJECTS'],
+        issues: [key],
+      },
+    ]);
+    return Array.isArray(result) && result.some((entry) => entry?.permission === 'BROWSE_PROJECTS' && Array.isArray(entry.issues) && entry.issues.length > 0);
+  } catch {
+    return false;
+  }
+}
+
+async function canUserAddComments(issueKey) {
+  const key = normalizeIssueKey(issueKey);
+  if (!key) return false;
+  try {
+    return await authorize().onJiraIssue(key).canAddComments();
+  } catch {
+    return false;
+  }
+}
+
+async function getAuthorizedBrowseableIssueKeys(issueKeys) {
+  const out = [];
+  for (const issueKey of issueKeys) {
+    if (await canUserBrowseIssue(issueKey)) out.push(issueKey);
+  }
+  return out;
+}
+
+async function setStoredSlackBotToken(token) {
+  const next = token != null ? String(token).trim() : '';
+  if (!next) {
+    await kvs.deleteSecret(ADMIN_CONFIG_SLACK_BOT_TOKEN_SECRET_KEY).catch(() => {});
+    return;
+  }
+  await kvs.setSecret(ADMIN_CONFIG_SLACK_BOT_TOKEN_SECRET_KEY, next);
+}
+
 async function getAdminConfig() {
   try {
     const raw = await kvs.get(ADMIN_CONFIG_KEY);
     if (raw != null && typeof raw === 'object') {
-      return finalizeAdminConfig({ ...DEFAULT_ADMIN_CONFIG, ...raw });
+      const nextRaw = { ...raw };
+      const legacyToken = nextRaw.slackBotToken != null ? String(nextRaw.slackBotToken).trim() : '';
+      let configChanged = false;
+      if (legacyToken) {
+        await setStoredSlackBotToken(legacyToken);
+        delete nextRaw.slackBotToken;
+        configChanged = true;
+      }
+      const secretToken = await getStoredSlackBotToken();
+      const config = finalizeAdminConfig({ ...DEFAULT_ADMIN_CONFIG, ...nextRaw, slackBotToken: secretToken });
+      if (configChanged) {
+        await kvs.set(ADMIN_CONFIG_KEY, nextRaw).catch(() => {});
+      }
+      return config;
     }
   } catch {
     // ignore
   }
-  return finalizeAdminConfig({ ...DEFAULT_ADMIN_CONFIG });
+  const secretToken = await getStoredSlackBotToken();
+  return finalizeAdminConfig({ ...DEFAULT_ADMIN_CONFIG, slackBotToken: secretToken });
 }
 
 /**
@@ -645,35 +842,48 @@ resolver.define('setAdminConfig', async ({ payload }) => {
   }
   const allowed = new Set(Object.keys(DEFAULT_ADMIN_CONFIG));
   const toStore = {};
+  let nextSlackBotToken;
+  let sawSlackBotToken = false;
   for (const [key, value] of Object.entries(payload)) {
     if (!allowed.has(key)) continue;
-    if ((key === 'customTemplate' || key === 'relayCommentTemplate') && value != null) toStore[key] = String(value);
-    else if (key === 'customUserGroup' && value != null) toStore[key] = String(value).trim();
-    else if ((key === 'slackWebhookUrl' || key === 'emailWebhookUrl') && value != null) toStore[key] = String(value).trim();
-    else if (key === 'slackChannelId' && value != null) toStore[key] = String(value).trim();
-    else if (key === 'slackBotToken') {
-      if (Object.prototype.hasOwnProperty.call(payload, 'slackBotToken')) toStore[key] = (value != null ? String(value) : '').trim();
+    if ((key === 'customTemplate' || key === 'relayCommentTemplate') && value != null) toStore[key] = limitTemplateLength(value);
+    else if (key === 'customUserGroup' && value != null) toStore[key] = normalizeBoundedText(value, 200);
+    else if (key === 'slackWebhookUrl' && value != null) {
+      const normalized = normalizeSlackWebhookUrl(value);
+      if (normalized == null) return { ok: false, error: 'Slack webhook URL must be a valid https://hooks.slack.com URL.' };
+      toStore[key] = normalized;
+    } else if (key === 'emailWebhookUrl' && value != null) {
+      const normalized = normalizeHttpsWebhookUrl(value);
+      if (normalized == null) return { ok: false, error: 'Email webhook URL must be a valid HTTPS URL.' };
+      toStore[key] = normalized;
+    } else if (key === 'slackChannelId' && value != null) {
+      const normalized = normalizeSlackChannelId(value);
+      if (normalized == null) return { ok: false, error: 'Slack channel ID must be a valid Slack channel identifier.' };
+      toStore[key] = normalized;
     }
-    else if ((key === 'slaFieldId' || key === 'slaFieldName') && value != null) toStore[key] = String(value).trim();
+    else if (key === 'slackBotToken') {
+      if (Object.prototype.hasOwnProperty.call(payload, 'slackBotToken')) {
+        nextSlackBotToken = (value != null ? String(value) : '').trim();
+        sawSlackBotToken = true;
+      }
+    }
+    else if (key === 'slaFieldId' && value != null) {
+      const normalized = normalizeFieldIdentifier(value);
+      if (normalized == null) return { ok: false, error: 'SLA field ID must be a valid Jira field identifier.' };
+      toStore[key] = normalized;
+    } else if (key === 'slaFieldName' && value != null) {
+      toStore[key] = normalizeBoundedText(value, 200);
+    }
     else if ((key === 'atRiskAdditionalMentions' || key === 'breachedAdditionalMentions') && Array.isArray(value)) {
-      const seen = new Set();
-      toStore[key] = value
-        .filter((m) => m && m.accountId)
-        .filter((m) => {
-          const id = String(m.accountId);
-          if (seen.has(id)) return false;
-          seen.add(id);
-          return true;
-        })
-        .map((m) => ({ accountId: String(m.accountId), displayName: m.displayName != null ? String(m.displayName) : '' }));
+      toStore[key] = normalizeUserMentionList(value);
     }     else if ((key === 'atRiskNotifyFromFields' || key === 'breachedNotifyFromFields') && Array.isArray(value)) {
-      toStore[key] = value.map((s) => String(s).trim()).filter(Boolean);
+      toStore[key] = normalizeFieldIdentifierList(value);
     } else if (key === 'notificationSlackDmEmails' && Array.isArray(value)) {
-      toStore[key] = value.map((s) => String(s).trim()).filter(Boolean);
+      toStore[key] = normalizeEmailList(value);
     } else if (key === 'slackUserIdByAccountId' && value != null && typeof value === 'object' && !Array.isArray(value)) {
       const out = {};
       for (const [k, v] of Object.entries(value)) {
-        const aid = String(k).trim();
+        const aid = normalizeAccountId(k);
         const sid = normalizeSlackMemberId(v);
         if (aid && sid) out[aid] = sid;
       }
@@ -689,6 +899,7 @@ resolver.define('setAdminConfig', async ({ payload }) => {
   try {
     const current = await getAdminConfig();
     const next = migrateTimeLeftWarningsConfig({ ...current, ...toStore });
+    delete next.slackBotToken;
     delete next.trigger30MinRemaining;
     delete next.warningMinutesRemaining;
     delete next.timeLeftWarningThresholdsDays;
@@ -696,6 +907,7 @@ resolver.define('setAdminConfig', async ({ payload }) => {
     delete next.breachedNotifyManager;
     delete next.warningThresholdsRecipients;
     await kvs.set(ADMIN_CONFIG_KEY, next);
+    if (sawSlackBotToken) await setStoredSlackBotToken(nextSlackBotToken);
     return { ok: true };
   } catch (e) {
     console.error('[SLA Link Inspector] setAdminConfig error', e.message);
@@ -711,10 +923,12 @@ function mergeSlackTestConfig(saved, payload) {
   const p = payload && typeof payload === 'object' ? payload : {};
   const merged = { ...saved };
   if (p.slackWebhookUrl != null && String(p.slackWebhookUrl).trim() !== '') {
-    merged.slackWebhookUrl = String(p.slackWebhookUrl).trim();
+    const normalized = normalizeSlackWebhookUrl(p.slackWebhookUrl);
+    if (normalized) merged.slackWebhookUrl = normalized;
   }
   if (p.slackChannelId != null && String(p.slackChannelId).trim() !== '') {
-    merged.slackChannelId = String(p.slackChannelId).trim();
+    const normalized = normalizeSlackChannelId(p.slackChannelId);
+    if (normalized) merged.slackChannelId = normalized;
   }
   if (p.slackBotToken != null && String(p.slackBotToken).trim() !== '') {
     merged.slackBotToken = String(p.slackBotToken).trim();
@@ -765,7 +979,6 @@ async function resolveInvokerJiraAccountId(context) {
  * Admin pages often omit issue + accountId in context; /myself fixes “DM the person clicking Test”.
  */
 async function resolveTestSlackDmTargetAccountId(issueKeyOverride, context) {
-  const jiraAsApp = api.asApp().requestJira.bind(api.asApp());
   const trimmedOverride = (issueKeyOverride != null ? String(issueKeyOverride) : '').trim();
   const issueKey =
     trimmedOverride ||
@@ -779,7 +992,7 @@ async function resolveTestSlackDmTargetAccountId(issueKeyOverride, context) {
 
   if (issueKey) {
     try {
-      const issueRes = await jiraAsApp(route`/rest/api/3/issue/${issueKey}?fields=assignee`);
+      const issueRes = await api.asUser().requestJira(route`/rest/api/3/issue/${issueKey}?fields=assignee`);
       if (issueRes.ok) {
         const issue = await issueRes.json().catch(() => ({}));
         const aid = issue?.fields?.assignee?.accountId || null;
@@ -815,6 +1028,9 @@ resolver.define('testSlackWebhook', async ({ payload }) => {
   const licenseStatus = getLicenseStatus();
   if (licenseStatus.isProduction && !licenseStatus.licensed) {
     return { ok: false, error: licenseStatus.reason || 'A valid license is required. Please upgrade from the Marketplace.' };
+  }
+  if (payload != null && typeof payload !== 'object') {
+    return { ok: false, error: 'Invalid payload.' };
   }
   const saved = await getAdminConfig();
   const config = mergeSlackTestConfig(saved, payload);
@@ -857,8 +1073,15 @@ resolver.define('testSlackDm', async ({ payload, context }) => {
   if (licenseStatus.isProduction && !licenseStatus.licensed) {
     return { ok: false, error: licenseStatus.reason || 'A valid license is required. Please upgrade from the Marketplace.' };
   }
-  const email = (payload?.email != null ? String(payload.email) : '').trim();
-  const issueKeyOverride = (payload?.issueKey != null ? String(payload.issueKey) : '').trim();
+  if (payload != null && typeof payload !== 'object') {
+    return { ok: false, error: 'Invalid payload.' };
+  }
+  const email = payload?.email != null ? normalizeEmailList([payload.email])[0] || '' : '';
+  const issueKeyOverrideRaw = payload?.issueKey != null ? payload.issueKey : '';
+  const issueKeyOverride = issueKeyOverrideRaw ? normalizeIssueKey(issueKeyOverrideRaw) : '';
+  if (issueKeyOverrideRaw && issueKeyOverride == null) {
+    return { ok: false, error: 'Issue key must be a valid Jira issue key.' };
+  }
   const saved = await getAdminConfig();
   const config = mergeSlackTestConfig(saved, payload);
   const token = getSlackBotTokenForDm(config);
@@ -956,6 +1179,9 @@ resolver.define('saveMySlackUserId', async ({ payload, context }) => {
         'Your site admin has disabled linking Slack IDs from this panel. Mappings are managed in the app’s configuration (Jira → Slack ID).',
     };
   }
+  if (payload != null && typeof payload !== 'object') {
+    return { ok: false, error: 'Invalid payload.' };
+  }
   const raw = payload?.slackUserId != null ? String(payload.slackUserId) : '';
   const sid = raw.trim() === '' ? null : normalizeSlackMemberId(raw);
   if (raw.trim() !== '' && !sid) {
@@ -1024,10 +1250,13 @@ resolver.define('getSlackLinkStatus', async ({ context }) => {
  * Search Jira users for the admin "additional mentions" picker. Payload: { query }. Returns { users: [{ accountId, displayName }] }.
  */
 resolver.define('searchJiraUsers', async ({ payload }) => {
-  const query = (payload?.query != null ? String(payload.query) : '').trim();
+  if (payload != null && typeof payload !== 'object') {
+    return { users: [] };
+  }
+  const query = normalizeSearchQuery(payload?.query);
   if (query.length < 2) return { users: [] };
   try {
-    const jira = api.asApp().requestJira.bind(api.asApp());
+    const jira = api.asUser().requestJira.bind(api.asUser());
     const res = await jira(route`/rest/api/3/user/search?query=${encodeURIComponent(query)}&maxResults=20`);
     if (!res.ok) return { users: [] };
     const data = await res.json();
@@ -1413,7 +1642,7 @@ async function buildMentionPeopleFromIssue(jira, issueKey, config, resolvedNotif
       }
     }
   } catch (e) {
-    console.error('[SLA Link Inspector] buildMentionPeopleFromIssue error', issueKey, e?.message);
+    console.error('[SLA Link Inspector] buildMentionPeopleFromIssue error', e?.message);
   }
   return out;
 }
@@ -1598,7 +1827,7 @@ async function sendSlackNotification(webhookUrl, message, opts = {}) {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      console.error('[SLA Link Inspector] Slack webhook failed', res.status, await res.text());
+      console.error('[SLA Link Inspector] Slack webhook failed', res.status);
     }
   } catch (e) {
     console.error('[SLA Link Inspector] Slack webhook error', e.message);
@@ -1628,7 +1857,7 @@ async function sendSlackViaWebApi(botToken, channelId, message, opts = {}) {
     });
     const data = await res.json().catch(() => ({}));
     if (!data.ok) {
-      console.error('[SLA Link Inspector] Slack Web API failed', data.error || res.status, data);
+      console.error('[SLA Link Inspector] Slack Web API failed', data.error || res.status);
     }
   } catch (e) {
     console.error('[SLA Link Inspector] Slack Web API error', e.message);
@@ -1716,14 +1945,14 @@ async function getEmailFromIssueContext(jira, issueKey, accountId) {
       data = {};
     }
     if (!res.ok) {
-      console.warn(logTag, 'issue context fallback: GET issue failed', res.status, 'issueKey=', key);
+      console.warn(logTag, 'issue context fallback: GET issue failed', res.status);
       return null;
     }
     const fields = data.fields || {};
     for (const u of [fields.assignee, fields.reporter]) {
       const e = emailFromJiraUserField(u, id);
       if (e) {
-        console.log(logTag, 'issue context fallback: email from assignee/reporter on issue', key);
+        console.log(logTag, 'issue context fallback: email from assignee/reporter on issue');
         return e;
       }
     }
@@ -1742,7 +1971,7 @@ async function getEmailFromIssueContext(jira, issueKey, accountId) {
         for (const w of wBody.watchers) {
           const e = emailFromJiraUserField(w, id);
           if (e) {
-            console.log(logTag, 'issue context fallback: email from watcher on issue', key);
+            console.log(logTag, 'issue context fallback: email from watcher on issue');
             return e;
           }
         }
@@ -1752,7 +1981,7 @@ async function getEmailFromIssueContext(jira, issueKey, accountId) {
     }
     return null;
   } catch (e) {
-    console.warn(logTag, 'issue context fallback error', e?.message, 'issueKey=', key);
+    console.warn(logTag, 'issue context fallback error', e?.message);
     return null;
   }
 }
@@ -1784,10 +2013,8 @@ async function getEmailForJiraAccountId(jira, accountId) {
         console.warn(
           logTag,
           label,
-          'returned 200 but no usable email field. accountId=',
-          id,
-          'bodySnippet=',
-          String(raw || '').slice(0, 400),
+          'returned 200 but no usable email field.',
+          'bodySnippet=(redacted)',
         );
         if (
           label.includes('bulk') &&
@@ -1807,17 +2034,15 @@ async function getEmailForJiraAccountId(jira, accountId) {
           '403 — Jira refused email access. A site admin must accept the new permission:',
           'Jira Settings → Apps → Manage apps → Linked SLA Alerts → Update app / Review app permissions',
           '(scope read:email-address:jira). Redeploy the app after adding the scope, then approve again if prompted.',
-          'accountId=',
-          id,
         );
       } else if (emailRes.status === 404) {
-        console.warn(logTag, label, '404 — user not found on this site. accountId=', id);
+        console.warn(logTag, label, '404 — user not found on this site.');
       } else {
-        console.warn(logTag, label, 'HTTP', emailRes.status, String(raw || '').slice(0, 280), 'accountId=', id);
+        console.warn(logTag, label, 'HTTP', emailRes.status);
       }
       return null;
     } catch (e) {
-      console.warn(logTag, label, 'request error:', e?.message, 'accountId=', id);
+      console.warn(logTag, label, 'request error:', e?.message);
       return null;
     }
   };
@@ -1854,8 +2079,7 @@ async function getEmailForJiraAccountId(jira, accountId) {
       if (bulkUserPage.values.length > 0) {
         console.warn(
           logTag,
-          'GET /user/bulk returned user(s) but no emailAddress (profile visibility). accountId=',
-          id,
+          'GET /user/bulk returned user(s) but no emailAddress (profile visibility).',
         );
       }
     } else if (!bulkUserRes.ok) {
@@ -1863,13 +2087,11 @@ async function getEmailForJiraAccountId(jira, accountId) {
         logTag,
         'GET /user/bulk HTTP',
         bulkUserRes.status,
-        String(bulkUserRaw || '').slice(0, 240),
-        'accountId=',
-        id,
+        '(response redacted)',
       );
     }
   } catch (e) {
-    console.warn(logTag, 'GET /user/bulk error:', e?.message, 'accountId=', id);
+    console.warn(logTag, 'GET /user/bulk error:', e?.message);
   }
 
   try {
@@ -1884,7 +2106,7 @@ async function getEmailForJiraAccountId(jira, accountId) {
       user = {};
     }
     if (!res.ok) {
-      console.warn(logTag, 'GET /user HTTP', res.status, String(raw || '').slice(0, 240), 'accountId=', id);
+      console.warn(logTag, 'GET /user HTTP', res.status);
       return null;
     }
     if (user.emailAddress) return String(user.emailAddress).trim();
@@ -1894,12 +2116,10 @@ async function getEmailForJiraAccountId(jira, accountId) {
       user.accountType,
       'active=',
       user.active,
-      'accountId=',
-      id,
     );
     return null;
   } catch (e) {
-    console.warn(logTag, 'GET /user error:', e?.message, 'accountId=', id);
+    console.warn(logTag, 'GET /user error:', e?.message);
     return null;
   }
 }
@@ -1932,10 +2152,7 @@ async function resolveEmailForSlackDmUncached(jira, mention, opts = {}) {
   if (uniqKeys.length > 0) {
     console.warn(
       logTag,
-      'issue context fallback: no emailAddress on assignee/reporter/watchers for issue(s)',
-      uniqKeys.join(', '),
-      'accountId=',
-      mention.accountId,
+      'issue context fallback: no emailAddress on assignee/reporter/watchers for available issue context',
     );
   }
   return null;
@@ -2157,7 +2374,7 @@ async function sendSlackDm(botToken, email, message, opts = {}) {
     });
     const lookupData = await lookupRes.json().catch(() => ({}));
     if (!lookupData.ok || !lookupData.user?.id) {
-      if (lookupData.error !== 'users_not_found') console.error('[SLA Link Inspector] Slack DM lookup failed for', e, lookupData.error);
+      if (lookupData.error !== 'users_not_found') console.error('[SLA Link Inspector] Slack DM lookup failed', lookupData.error);
       return;
     }
     const userId = lookupData.user.id;
@@ -2247,7 +2464,7 @@ async function sendEmailWebhook(webhookUrl, payload) {
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
-      console.error('[SLA Link Inspector] Email webhook failed', res.status, await res.text());
+      console.error('[SLA Link Inspector] Email webhook failed', res.status);
     }
   } catch (e) {
     console.error('[SLA Link Inspector] Email webhook error', e.message);
@@ -2306,10 +2523,10 @@ async function maybeCommentOnSlaChange(
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        console.error('[SLA Link Inspector] Resolver: failed to add comment on linked', linkedIssueKey, res.status, await res.text());
+        console.error('[SLA Link Inspector] Resolver: failed to add comment on linked', res.status);
         // Still send Slack / email / DMs so delivery isn’t skipped when Jira comment fails (e.g. permissions).
       } else {
-        console.log('[SLA Link Inspector] Resolver: added parent SLA alert comment on linked', linkedIssueKey, slaStatus);
+        console.log('[SLA Link Inspector] Resolver: added parent SLA alert comment on linked', slaStatus);
       }
     }
     const vars = {
@@ -2381,7 +2598,7 @@ async function maybeCommentOnSlaChange(
           });
           if (!email) {
             console.warn(
-              `[SLA Link Inspector] Slack DM skipped — no email or Slack member ID for Jira user accountId=${m?.accountId ?? '(missing)'} (see “Jira email for Slack DM” logs). Map Slack IDs in app settings or use “Link Slack” on the issue panel.`,
+              '[SLA Link Inspector] Slack DM skipped — no email or Slack member ID for a Jira user (see “Jira email for Slack DM” logs). Map Slack IDs in app settings or use “Link Slack” on the issue panel.',
             );
             continue;
           }
@@ -2422,7 +2639,7 @@ async function maybeCommentOnSlaChange(
       }
     }
   } catch (e) {
-    console.error('[SLA Link Inspector] Resolver: error adding comment on linked', linkedIssueKey, e.message);
+    console.error('[SLA Link Inspector] Resolver: error adding comment on linked', e.message);
   }
 }
 
@@ -2431,8 +2648,14 @@ async function maybeCommentOnSlaChange(
  * Payload: { linkedIssueKey }. Returns { ok, summary } or { ok: false, error }.
  */
 resolver.define('getSlaDatesInfo', async ({ payload }) => {
-  const linkedIssueKey = payload?.linkedIssueKey != null ? String(payload.linkedIssueKey).trim() : '';
-  if (!linkedIssueKey) return { ok: false, error: 'Missing linkedIssueKey.' };
+  if (payload == null || typeof payload !== 'object') return { ok: false, error: 'Invalid payload.' };
+  const linkedIssueKeyRaw = payload?.linkedIssueKey != null ? payload.linkedIssueKey : '';
+  const linkedIssueKey = normalizeIssueKey(linkedIssueKeyRaw);
+  if (!linkedIssueKeyRaw) return { ok: false, error: 'Missing linkedIssueKey.' };
+  if (linkedIssueKey == null) return { ok: false, error: 'linkedIssueKey must be a valid Jira issue key.' };
+  if (!(await canUserBrowseIssue(linkedIssueKey))) {
+    return { ok: false, error: 'You do not have permission to view that issue.' };
+  }
   try {
     const jira = api.asApp().requestJira.bind(api.asApp());
     const slaField = await getSlaFieldForRequest();
@@ -2497,10 +2720,24 @@ resolver.define('getSlaDatesInfo', async ({ payload }) => {
  * Payload: { parentIssueKey, linkedIssueKey }. Parent's SLA must be at_risk or breached.
  */
 resolver.define('testFireSlaComment', async ({ payload }) => {
-  const linkedIssueKey = payload?.linkedIssueKey != null ? String(payload.linkedIssueKey).trim() : '';
-  const parentIssueKey = payload?.parentIssueKey != null ? String(payload.parentIssueKey).trim() : '';
-  if (!linkedIssueKey) return { ok: false, error: 'Missing linkedIssueKey.' };
-  if (!parentIssueKey) return { ok: false, error: 'Missing parentIssueKey.' };
+  if (payload == null || typeof payload !== 'object') return { ok: false, error: 'Invalid payload.' };
+  const linkedIssueKeyRaw = payload?.linkedIssueKey != null ? payload.linkedIssueKey : '';
+  const parentIssueKeyRaw = payload?.parentIssueKey != null ? payload.parentIssueKey : '';
+  const linkedIssueKey = normalizeIssueKey(linkedIssueKeyRaw);
+  const parentIssueKey = normalizeIssueKey(parentIssueKeyRaw);
+  if (!linkedIssueKeyRaw) return { ok: false, error: 'Missing linkedIssueKey.' };
+  if (!parentIssueKeyRaw) return { ok: false, error: 'Missing parentIssueKey.' };
+  if (linkedIssueKey == null) return { ok: false, error: 'linkedIssueKey must be a valid Jira issue key.' };
+  if (parentIssueKey == null) return { ok: false, error: 'parentIssueKey must be a valid Jira issue key.' };
+  if (!(await canUserBrowseIssue(parentIssueKey))) {
+    return { ok: false, error: 'You do not have permission to view the parent issue.' };
+  }
+  if (!(await canUserBrowseIssue(linkedIssueKey))) {
+    return { ok: false, error: 'You do not have permission to view the linked issue.' };
+  }
+  if (!(await canUserAddComments(linkedIssueKey))) {
+    return { ok: false, error: 'You do not have permission to add comments to the linked issue.' };
+  }
   try {
     const jira = api.asApp().requestJira.bind(api.asApp());
     const slaField = await getSlaFieldForRequest();
@@ -2543,9 +2780,22 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
   if (licenseStatus.isProduction && !licenseStatus.licensed) {
     return { ok: false, error: licenseStatus.reason || 'A valid license is required.', posted: [], failed: [] };
   }
-  const currentIssueKey = payload?.issueKey != null ? String(payload.issueKey).trim() : '';
-  if (!currentIssueKey) return { ok: false, error: 'Missing issueKey.', posted: [], failed: [] };
-  const targetKeysFromPayload = Array.isArray(payload?.targetKeys) ? payload.targetKeys : (payload?.targetKeys != null ? [payload.targetKeys] : null);
+  if (payload == null || typeof payload !== 'object') {
+    return { ok: false, error: 'Invalid payload.', posted: [], failed: [] };
+  }
+  const currentIssueKeyRaw = payload?.issueKey != null ? payload.issueKey : '';
+  const currentIssueKey = normalizeIssueKey(currentIssueKeyRaw);
+  if (!currentIssueKeyRaw) return { ok: false, error: 'Missing issueKey.', posted: [], failed: [] };
+  if (currentIssueKey == null) return { ok: false, error: 'issueKey must be a valid Jira issue key.', posted: [], failed: [] };
+  if (!(await canUserBrowseIssue(currentIssueKey))) {
+    return { ok: false, error: 'You do not have permission to view that issue.', posted: [], failed: [] };
+  }
+  const targetKeysFromPayload = Array.isArray(payload?.targetKeys)
+    ? normalizeIssueKeyList(payload.targetKeys)
+    : (payload?.targetKeys != null ? normalizeIssueKeyList([payload.targetKeys]) : null);
+  if (payload?.targetKeys != null && targetKeysFromPayload != null && targetKeysFromPayload.length === 0) {
+    return { ok: false, error: 'targetKeys must contain valid Jira issue keys.', posted: [], failed: [] };
+  }
   try {
     const jira = api.asApp().requestJira.bind(api.asApp());
     const slaField = await getSlaFieldForRequest();
@@ -2604,6 +2854,14 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
     const failed = [];
     for (const linkedKey of keysToPost) {
       try {
+        if (!(await canUserBrowseIssue(linkedKey))) {
+          failed.push({ key: linkedKey, error: 'No permission to view this issue.' });
+          continue;
+        }
+        if (!(await canUserAddComments(linkedKey))) {
+          failed.push({ key: linkedKey, error: 'No permission to add comments to this issue.' });
+          continue;
+        }
         const linkedRes = await jira(route`/rest/api/3/issue/${linkedKey}?fields=assignee,reporter`);
         if (!linkedRes.ok) {
           failed.push({ key: linkedKey, error: `Failed to load: ${linkedRes.status}` });
@@ -2714,7 +2972,7 @@ resolver.define('notifyLinkedTicketsOfCurrentSla', async ({ payload }) => {
             });
             if (!email) {
               console.warn(
-                `[SLA Link Inspector] Slack DM skipped — no email or Slack member ID for Jira user accountId=${m?.accountId ?? '(missing)'}. Map Slack IDs in app settings or use “Link Slack” on the issue panel.`,
+                '[SLA Link Inspector] Slack DM skipped — no email or Slack member ID for a Jira user. Map Slack IDs in app settings or use “Link Slack” on the issue panel.',
               );
               continue;
             }
@@ -2752,21 +3010,24 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
     context?.extension?.issueKey ||
     context?.platform?.issueKey ||
     context?.platform?.issue?.key;
-  const safeIssueKey = issueKey != null ? String(issueKey).trim() : '';
+  const safeIssueKey = issueKey != null ? normalizeIssueKey(issueKey) : '';
 
   if (!safeIssueKey) {
-    console.log('[SLA Link Inspector] Resolver: no issue key in payload or context', JSON.stringify({ hasPayload: !!payload, contextKeys: context ? Object.keys(context) : [] }));
+    console.log('[SLA Link Inspector] Resolver: no issue key in payload or context');
     return { error: 'No issue key. Open this panel from a Jira issue view.', linkedIssues: [], panelSla: null, licenseStatus };
   }
+  if (!(await canUserBrowseIssue(safeIssueKey))) {
+    return { error: 'You do not have permission to view this issue.', linkedIssues: [], panelSla: null, licenseStatus };
+  }
 
-  console.log('[SLA Link Inspector] Resolver: selected issue key', safeIssueKey);
+  console.log('[SLA Link Inspector] Resolver: selected issue key');
 
   try {
     const jira = api.asApp().requestJira.bind(api.asApp());
     const slaField = await getSlaFieldForRequest();
     const slaFieldId = slaField?.id ?? null;
     if (slaField) {
-      console.log('[SLA Link Inspector] Resolver: detected SLA field', slaField.name, '(', slaField.id, ')');
+      console.log('[SLA Link Inspector] Resolver: detected SLA field');
     } else {
       console.log('[SLA Link Inspector] Resolver: no SLA field found in Jira instance');
     }
@@ -2781,7 +3042,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
     );
     if (!issueRes.ok) {
       const errText = await issueRes.text();
-      console.error('[SLA Link Inspector] Resolver: failed to load issue', issueRes.status, errText);
+      console.error('[SLA Link Inspector] Resolver: failed to load issue', issueRes.status);
       return { error: `Failed to load issue: ${issueRes.status} ${errText}`, linkedIssues: [], panelSla: null, licenseStatus };
     }
 
@@ -2815,8 +3076,9 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
     if (slaFieldId) fieldsParam.push(slaFieldId);
     const fieldsQuery = fieldsParam.join(',');
 
+    const browseableLinkedKeys = await getAuthorizedBrowseableIssueKeys([...linkedKeys]);
     const linkedIssues = [];
-    for (const key of linkedKeys) {
+    for (const key of browseableLinkedKeys) {
       const safeKey = String(key);
       try {
         const res = await jira(
@@ -2860,7 +3122,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
           assigneeDisplayName,
         });
       } catch (e) {
-        console.error('[SLA Link Inspector] Resolver: error fetching linked issue', safeKey, e.message);
+        console.error('[SLA Link Inspector] Resolver: error fetching linked issue', e.message);
         linkedIssues.push({
           key: safeKey,
           projectKey: projectKeyFromIssueKey(safeKey),
@@ -2879,9 +3141,10 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
       if (linked.error) continue;
       const linkedPeople = await buildMentionPeopleFromIssue(jira, linked.key, configEarly, resolvedNotifyFields);
       try {
+        if (!(await canUserAddComments(linked.key))) continue;
         await maybeCommentOnSlaChange(jira, safeIssueKey, parentSla, linked.key, linked.statusCategory, linkedPeople, false, parentPriorityStr);
       } catch (e) {
-        console.error('[SLA Link Inspector] Resolver: storage/comment error for', linked.key, e.message);
+        console.error('[SLA Link Inspector] Resolver: storage/comment error', e.message);
       }
     }
 
@@ -2935,7 +3198,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
                 body: JSON.stringify(adfBody),
               });
               if (!res.ok) continue;
-              console.log('[SLA Link Inspector] Resolver: time-left warning', hKey, 'posted on linked', linked.key);
+              console.log('[SLA Link Inspector] Resolver: time-left warning posted on linked issue');
             }
             const plainW =
               buildPlainTextMessage(config.customTemplate || null, varsWarn, mentionsW) ||
@@ -2999,7 +3262,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
                   });
                   if (!email) {
                     console.warn(
-                      `[SLA Link Inspector] Slack DM skipped — no email or Slack member ID for Jira user accountId=${m?.accountId ?? '(missing)'}. Map Slack IDs in app settings or use “Link Slack” on the issue panel.`,
+                      '[SLA Link Inspector] Slack DM skipped — no email or Slack member ID for a Jira user. Map Slack IDs in app settings or use “Link Slack” on the issue panel.',
                     );
                     continue;
                   }
@@ -3036,7 +3299,7 @@ resolver.define('getLinkedIssueSlas', async ({ payload, context }) => {
             }
           }
         } catch (e) {
-          console.error('[SLA Link Inspector] Resolver: time-left warning error', hKey, e.message);
+          console.error('[SLA Link Inspector] Resolver: time-left warning error', e.message);
         }
       }
     }

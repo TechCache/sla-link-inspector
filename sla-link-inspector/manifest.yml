@@ -7,7 +7,6 @@ permissions:
   external:
     fetch:
       backend:
-        - address: "*.atlassian.net"
         - address: "hooks.slack.com"
         - address: "slack.com"
         - address: "hooks.zapier.com"

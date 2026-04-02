@@ -17,17 +17,20 @@
     "deploy:production": "npm run deploy"
   },
   "devDependencies": {
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.28.0",
     "eslint": "^8.56.0",
-    "eslint-plugin-security": "^3.0.1",
-    "eslint-plugin-react-hooks": "^4.6.0"
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-security": "^3.0.1"
+  },
+  "overrides": {
+    "lodash": "^4.18.1"
   },
   "dependencies": {
     "@forge/api": "^7.0.0",
     "@forge/bridge": "^5.2.0",
     "@forge/kvs": "^1.4.0",
-    "@forge/react": "11.2.5",
-    "@forge/resolver": "1.6.14",
+    "@forge/react": "^11.14.0",
+    "@forge/resolver": "^1.7.1",
     "react": "^18.2.0"
   }
 }
