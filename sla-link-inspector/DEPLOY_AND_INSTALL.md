@@ -7,11 +7,11 @@ Your code in **Projects/sla-link-inspector/sla-link-inspector** is correct (Tick
 Your `manifest.yml` has:
 ```yaml
 app:
-  id: ari:cloud:ecosystem::app/aed3fc25-0933-4935-aeeb-4469a9a3c828
+  id: ari:cloud:ecosystem::app/875126f5-5997-4d13-bf50-097ce475cee5
 ```
 
 - Go to https://developer.atlassian.com/console/myapps/
-- Click **each** "Linked SLA Alerts" and check **App details** (or the URL). One will have ID ending in **aed3fc25-0933-4935-aeeb-4469a9a3c828**. That is **App A** (the one you're deploying).
+- Click **each** "Linked SLA Alerts" and check **App details** (or the URL). One will have ID ending in **875126f5-5997-4d13-bf50-097ce475cee5**. That is **App A** (the one you're deploying).
 
 ## 2. Deploy from the correct folder
 
@@ -33,7 +33,7 @@ npm run deploy:dev
 
 - In Jira: **Settings (gear)** → **Apps** → **Manage apps** (or **Find new apps**).
 - Find **Linked SLA Alerts**. **Uninstall** it (or both if you see two).
-- In Developer Console, open **App A** (the one with id `aed3fc25-...`).
+- In Developer Console, open **App A** (the one with id `875126f5-...`).
 - Go to **Production** if you ran `npm run deploy` / `forge deploy -e production`, or **Development** if you only deploy to dev.
 - Copy the **Install app** / **Get install link** URL from that environment (Production and Development have **different** builds).
 - Open that URL in your browser and complete the install on your Jira site.
